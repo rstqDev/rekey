@@ -24,6 +24,22 @@ impl Sensitivity {
         }
     }
 
+    /// Extra advantage demanded when the corrected reading is not a real word
+    /// either.
+    ///
+    /// When neither spelling is in the dictionary the comparison is between two
+    /// pieces of gibberish, decided on letter statistics alone. That is exactly
+    /// the situation where the engine is most likely to be wrong and least
+    /// likely to be useful, so it needs a much stronger signal — while still
+    /// leaving room for genuinely new slang the corpus has never seen.
+    pub fn unknown_target_surcharge(self) -> f32 {
+        match self {
+            Sensitivity::Cautious => 3.0,
+            Sensitivity::Balanced => 2.5,
+            Sensitivity::Eager => 1.5,
+        }
+    }
+
     /// Extra advantage demanded when the text as typed is *already* a real word
     /// in the active language. Converting those is how a switcher earns its
     /// reputation for being infuriating, so the bar is deliberately steep.

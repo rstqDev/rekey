@@ -208,6 +208,12 @@ impl Detector {
             None => 0.0,
         };
 
+        // Neither reading is a known word: this is a guess from letter shape
+        // alone, so demand much more before touching the user's text.
+        if !best.target_knows_word {
+            required += self.config.sensitivity.unknown_target_surcharge();
+        }
+
         // Latin-to-Latin pairs share an alphabet, so a "wrong layout" word
         // still looks like text and the evidence is inherently weaker.
         let from_latin = from.def.latin_overlap;
@@ -301,6 +307,36 @@ impl Detector {
                 !tok.is_empty() && tok.chars().all(|ch| ch.is_alphabetic())
             })
         })
+    }
+
+    /// Split a typed token into `(prefix, core, suffix)`, where the affixes are
+    /// punctuation that no enabled layout could turn into a letter.
+    ///
+    /// This is what lets `ghbdtn!` be corrected: the `!` is punctuation on every
+    /// layout the user has on, so it can be set aside and put back afterwards.
+    /// A trailing `,` is left attached when a Cyrillic layout is enabled,
+    /// because there it is the letter `б` and stripping it would corrupt the
+    /// word.
+    pub fn trim_affixes<'a>(&self, token: &'a str, active: &str) -> (&'a str, &'a str, &'a str) {
+        let Some(from) = layout::layout(active) else {
+            return ("", token, "");
+        };
+        let alternatives = self.config.alternatives(active);
+        let is_affix =
+            |c: char| !c.is_alphabetic() && !self.is_letter_capable(c, from, &alternatives);
+
+        let start = token
+            .char_indices()
+            .find(|(_, c)| !is_affix(*c))
+            .map(|(i, _)| i)
+            .unwrap_or(token.len());
+        let end = token
+            .char_indices()
+            .rev()
+            .find(|(_, c)| !is_affix(*c))
+            .map(|(i, c)| i + c.len_utf8())
+            .unwrap_or(start);
+        (&token[..start], &token[start..end], &token[end..])
     }
 
     /// Convert `word` between two layouts unconditionally. Backs the manual

@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/rekey-core",
+    "crates/rekey-hook",
     "tools/modelgen",
     "tools/eval",
 ]
