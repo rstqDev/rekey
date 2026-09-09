@@ -1,0 +1,32 @@
+# Rust
+/target
+**/target
+Cargo.lock.bak
+
+# Node
+node_modules
+dist
+.vite
+*.tsbuildinfo
+
+# Tauri
+app/src-tauri/target
+app/src-tauri/gen
+
+# macOS
+.DS_Store
+
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+secrets/
+
+# Build artifacts
+/release
+*.dmg
+*.msi
+*.exe.zip
+
+# Model build cache
+/tools/.cache
