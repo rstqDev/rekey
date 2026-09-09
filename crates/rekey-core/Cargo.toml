@@ -8,5 +8,6 @@ description = "Layout tables, language models and the wrong-layout detection eng
 
 [dependencies]
 serde = { workspace = true }
+unicode-normalization = "0.1"
 
 [dev-dependencies]

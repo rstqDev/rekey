@@ -1,0 +1,10 @@
+[package]
+name = "modelgen"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Trains Rekey's per-language scoring models from frequency lists."
+
+[dependencies]
+rekey-core = { workspace = true }

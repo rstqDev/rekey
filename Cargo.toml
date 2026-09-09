@@ -2,6 +2,8 @@
 resolver = "2"
 members = [
     "crates/rekey-core",
+    "tools/modelgen",
+    "tools/eval",
 ]
 
 [workspace.package]

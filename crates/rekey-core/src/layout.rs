@@ -18,6 +18,7 @@
 
 use std::collections::HashMap;
 use std::sync::OnceLock;
+use unicode_normalization::UnicodeNormalization;
 
 /// Number of printable keys we model.
 pub const KEY_COUNT: usize = 47;
@@ -50,6 +51,12 @@ pub struct LayoutDef {
     pub latin_overlap: bool,
     lower: &'static str,
     upper: &'static str,
+    /// Dead keys, as `(combining mark, the character the dead key shows)`.
+    ///
+    /// Accented letters on these layouts are two keystrokes — `;` then `a` for
+    /// Greek `ά` — so they have no single key position. Without this, accented
+    /// text simply passes through unconverted and whole languages look broken.
+    dead: &'static [(char, char)],
 }
 
 // ---------------------------------------------------------------------------
@@ -65,6 +72,7 @@ pub static LAYOUTS: &[LayoutDef] = &[
         latin_overlap: true,
         lower: "` 1 2 3 4 5 6 7 8 9 0 - = q w e r t y u i o p [ ] \\ a s d f g h j k l ; ' z x c v b n m , . /",
         upper: "~ ! @ # $ % ^ & * ( ) _ + Q W E R T Y U I O P { } | A S D F G H J K L : \" Z X C V B N M < > ?",
+        dead: &[],
     },
     LayoutDef {
         id: "ru",
@@ -74,6 +82,7 @@ pub static LAYOUTS: &[LayoutDef] = &[
         latin_overlap: false,
         lower: "ё 1 2 3 4 5 6 7 8 9 0 - = й ц у к е н г ш щ з х ъ \\ ф ы в а п р о л д ж э я ч с м и т ь б ю .",
         upper: "Ё ! \" № ; % : ? * ( ) _ + Й Ц У К Е Н Г Ш Щ З Х Ъ / Ф Ы В А П Р О Л Д Ж Э Я Ч С М И Т Ь Б Ю ,",
+           dead: &[],
     },
     LayoutDef {
         id: "uk",
@@ -83,6 +92,7 @@ pub static LAYOUTS: &[LayoutDef] = &[
         latin_overlap: false,
         lower: "' 1 2 3 4 5 6 7 8 9 0 - = й ц у к е н г ш щ з х ї ґ ф і в а п р о л д ж є я ч с м и т ь б ю .",
         upper: "₴ ! \" № ; % : ? * ( ) _ + Й Ц У К Е Н Г Ш Щ З Х Ї Ґ Ф І В А П Р О Л Д Ж Є Я Ч С М И Т Ь Б Ю ,",
+           dead: &[],
     },
     LayoutDef {
         id: "he",
@@ -92,6 +102,7 @@ pub static LAYOUTS: &[LayoutDef] = &[
         latin_overlap: false,
         lower: "; 1 2 3 4 5 6 7 8 9 0 - = / ' ק ר א ט ו ן ם פ ] [ \\ ש ד ג כ ע י ח ל ך ף , ז ס ב ה נ מ צ ת ץ .",
         upper: "~ ! @ # $ % ^ & * ( ) _ + Q W ק ר א ט ו ן ם פ } { | ש ד ג כ ע י ח ל ך ף \" ז ס ב ה נ מ צ ת ץ ?",
+           dead: &[],
     },
     LayoutDef {
         id: "ar",
@@ -101,6 +112,7 @@ pub static LAYOUTS: &[LayoutDef] = &[
         latin_overlap: false,
         lower: "ذ 1 2 3 4 5 6 7 8 9 0 - = ض ص ث ق ف غ ع ه خ ح ج د \\ ش س ي ب ل ا ت ن م ك ط ئ ء ؤ ر لا ى ة و ز ظ",
         upper: "ّ ! @ # $ % ^ & * ( ) _ + َ ً ُ ٌ لإ إ ‘ ÷ × ؛ < > | ِ ٍ ] [ لأ أ ـ ، / : \" ~ ْ } { لآ آ ’ , . ؟",
+           dead: &[],
     },
     LayoutDef {
         id: "el",
@@ -110,6 +122,7 @@ pub static LAYOUTS: &[LayoutDef] = &[
         latin_overlap: false,
         lower: "` 1 2 3 4 5 6 7 8 9 0 - = ; ς ε ρ τ υ θ ι ο π [ ] \\ α σ δ φ γ η ξ κ λ ΄ ' ζ χ ψ ω β ν μ , . /",
         upper: "~ ! @ # $ % ^ & * ( ) _ + : Σ Ε Ρ Τ Υ Θ Ι Ο Π { } | Α Σ Δ Φ Γ Η Ξ Κ Λ ¨ \" Ζ Χ Ψ Ω Β Ν Μ < > ?",
+           dead: &[('\u{301}', '\u{384}'), ('\u{308}', '\u{a8}')],
     },
     LayoutDef {
         id: "de",
@@ -119,6 +132,7 @@ pub static LAYOUTS: &[LayoutDef] = &[
         latin_overlap: true,
         lower: "^ 1 2 3 4 5 6 7 8 9 0 ß ´ q w e r t z u i o p ü + # a s d f g h j k l ö ä y x c v b n m , . -",
         upper: "° ! \" § $ % & / ( ) = ? ` Q W E R T Z U I O P Ü * ' A S D F G H J K L Ö Ä Y X C V B N M ; : _",
+           dead: &[('\u{301}', '\u{b4}'), ('\u{300}', '\u{60}'), ('\u{302}', '\u{5e}')],
     },
     LayoutDef {
         id: "fr",
@@ -128,6 +142,7 @@ pub static LAYOUTS: &[LayoutDef] = &[
         latin_overlap: true,
         lower: "² & é \" ' ( - è _ ç à ) = a z e r t y u i o p ^ $ * q s d f g h j k l m ù w x c v b n , ; : !",
         upper: "~NONE~ 1 2 3 4 5 6 7 8 9 0 ° + A Z E R T Y U I O P ¨ £ µ Q S D F G H J K L M % W X C V B N ? . / §",
+           dead: &[('\u{302}', '\u{5e}'), ('\u{308}', '\u{a8}')],
     },
     LayoutDef {
         id: "es",
@@ -137,6 +152,7 @@ pub static LAYOUTS: &[LayoutDef] = &[
         latin_overlap: true,
         lower: "º 1 2 3 4 5 6 7 8 9 0 ' ¡ q w e r t y u i o p ` + ç a s d f g h j k l ñ ´ z x c v b n m , . -",
         upper: "ª ! \" · $ % & / ( ) = ? ¿ Q W E R T Y U I O P ^ * Ç A S D F G H J K L Ñ ¨ Z X C V B N M ; : _",
+           dead: &[('\u{301}', '\u{b4}'), ('\u{308}', '\u{a8}'), ('\u{300}', '\u{60}'), ('\u{302}', '\u{5e}')],
     },
     LayoutDef {
         id: "tr",
@@ -146,6 +162,7 @@ pub static LAYOUTS: &[LayoutDef] = &[
         latin_overlap: true,
         lower: "\" 1 2 3 4 5 6 7 8 9 0 * - q w e r t y u ı o p ğ ü , a s d f g h j k l ş i z x c v b n m ö ç .",
         upper: "é ! ' ^ + % & / ( ) = ? _ Q W E R T Y U I O P Ğ Ü ; A S D F G H J K L Ş İ Z X C V B N M Ö Ç :",
+           dead: &[],
     },
 ];
 
@@ -165,6 +182,10 @@ pub struct Layout {
     multi: HashMap<String, (usize, bool)>,
     /// Longest multi token in chars, 0 when there are none.
     max_multi: usize,
+    /// combining mark -> the key that acts as its dead key on this layout.
+    dead_by_mark: HashMap<char, (usize, bool)>,
+    /// key index (+shift) -> the combining mark that key applies.
+    mark_by_key: HashMap<(usize, bool), char>,
 }
 
 impl Layout {
@@ -226,12 +247,25 @@ impl Layout {
             }
         }
 
+        // Dead keys: locate the key that produces each dead character so a
+        // composed letter can be expressed as (dead key, base key).
+        let mut dead_by_mark = HashMap::new();
+        let mut mark_by_key = HashMap::new();
+        for (mark, dead_char) in def.dead {
+            if let Some(&(idx, shifted)) = chars.get(dead_char) {
+                dead_by_mark.insert(*mark, (idx, shifted));
+                mark_by_key.insert((idx, shifted), *mark);
+            }
+        }
+
         Layout {
             def,
             keys,
             chars,
             multi,
             max_multi,
+            dead_by_mark,
+            mark_by_key,
         }
     }
 
@@ -295,6 +329,29 @@ impl Layout {
         }
     }
 
+    /// Split a composed character into the (dead key, base key) presses this
+    /// layout would need for it, e.g. Greek `ά` -> the `;` and `a` keys.
+    fn dead_key_presses(&self, c: char) -> Option<[(usize, bool); 2]> {
+        let decomposed: Vec<char> = c.nfd().collect();
+        if decomposed.len() != 2 {
+            return None;
+        }
+        let (base, mark) = (decomposed[0], decomposed[1]);
+        let dead = *self.dead_by_mark.get(&mark)?;
+        let base_key = self.key_for(base)?;
+        Some([dead, base_key])
+    }
+
+    /// The combining mark this key applies, if it is a dead key.
+    fn mark_for_key(&self, idx: usize, shifted: bool) -> Option<char> {
+        self.mark_by_key.get(&(idx, shifted)).copied()
+    }
+
+    /// True when this key is a dead key on this layout.
+    pub fn is_dead_key(&self, idx: usize, shifted: bool) -> bool {
+        self.mark_by_key.contains_key(&(idx, shifted))
+    }
+
     /// Fraction of `s` that this layout can actually type. Used to reject
     /// conversions that would mangle text rather than fix it.
     pub fn coverage(&self, s: &str) -> f32 {
@@ -305,7 +362,7 @@ impl Layout {
                 continue;
             }
             total += 1;
-            if self.chars.contains_key(&c) {
+            if self.chars.contains_key(&c) || self.dead_key_presses(c).is_some() {
                 hit += 1;
             }
         }
@@ -342,30 +399,104 @@ pub fn layout_ids() -> Vec<&'static str> {
 ///
 /// Characters `from` cannot produce are passed through untouched, which keeps
 /// digits, spaces and emoji intact.
-pub fn convert(text: &str, from: &Layout, to: &Layout) -> String {
-    let mut out = String::with_capacity(text.len() * 2);
+/// One thing the user did: either a physical key, or a character that no key on
+/// the source layout can produce and which is therefore carried through as-is.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Press {
+    Key { idx: usize, shifted: bool },
+    Literal(char),
+}
+
+/// Reconstruct the keystrokes that produced `text` on `from`.
+fn to_presses(text: &str, from: &Layout) -> Vec<Press> {
+    let mut presses = Vec::with_capacity(text.len());
     let mut rest = text;
     while !rest.is_empty() {
-        match from.match_prefix(rest) {
-            Some((consumed, idx, shifted)) => {
+        if let Some((consumed, idx, shifted)) = from.match_prefix(rest) {
+            presses.push(Press::Key { idx, shifted });
+            rest = &rest[consumed..];
+            continue;
+        }
+        let c = rest.chars().next().expect("rest is non-empty");
+        // An accented letter is two keystrokes on layouts with dead keys.
+        if let Some([dead, base]) = from.dead_key_presses(c) {
+            presses.push(Press::Key {
+                idx: dead.0,
+                shifted: dead.1,
+            });
+            presses.push(Press::Key {
+                idx: base.0,
+                shifted: base.1,
+            });
+        } else {
+            presses.push(Press::Literal(c));
+        }
+        rest = &rest[c.len_utf8()..];
+    }
+    presses
+}
+
+/// Replay `presses` on `to`, composing accents where `to` has dead keys.
+fn render(presses: &[Press], to: &Layout) -> String {
+    let mut out = String::new();
+    // The combining mark still waiting for a base character, paired with the
+    // visible accent the layout shows when nothing follows it.
+    let mut pending: Option<(char, String)> = None;
+
+    for press in presses {
+        match *press {
+            Press::Key { idx, shifted } => {
+                // A dead key produces nothing until the next character lands.
+                if let Some(mark) = to.mark_for_key(idx, shifted) {
+                    let display = to.token_at(idx, shifted).to_string();
+                    // Two dead keys in a row: the first one stands alone.
+                    if let Some((_, prev_display)) = pending.replace((mark, display)) {
+                        out.push_str(&prev_display);
+                    }
+                    continue;
+                }
                 let tok = to.token_at(idx, shifted);
                 if tok.is_empty() {
-                    out.push_str(&rest[..consumed]);
-                } else {
-                    out.push_str(tok);
+                    continue;
                 }
-                rest = &rest[consumed..];
+                match pending.take() {
+                    Some((mark, _)) => {
+                        let mut it = tok.chars();
+                        let base = it.next().expect("token is non-empty");
+                        push_composed(&mut out, mark, base);
+                        out.push_str(it.as_str());
+                    }
+                    None => out.push_str(tok),
+                }
             }
-            None => {
-                // Not typeable on `from` (emoji, CJK, digits on some layouts):
-                // pass the character through untouched.
-                let c = rest.chars().next().expect("rest is non-empty");
-                out.push(c);
-                rest = &rest[c.len_utf8()..];
-            }
+            Press::Literal(c) => match pending.take() {
+                Some((mark, _)) => push_composed(&mut out, mark, c),
+                None => out.push(c),
+            },
         }
     }
+    // A dead key with nothing after it shows as the layout's bare accent.
+    if let Some((_, display)) = pending {
+        out.push_str(&display);
+    }
     out
+}
+
+/// Append `base` with `mark` applied, falling back to the two separate
+/// characters when the pair has no precomposed form (e.g. `΄` over a
+/// consonant, which the user can still see and correct).
+fn push_composed(out: &mut String, mark: char, base: char) {
+    let composed: String = [base, mark].iter().collect::<String>().nfc().collect();
+    out.push_str(&composed);
+}
+
+/// Re-type `text` as if the same physical keys had been pressed with `to`
+/// active instead of `from`.
+///
+/// Characters `from` cannot produce are passed through untouched, which keeps
+/// digits, spaces and emoji intact.
+pub fn convert(text: &str, from: &Layout, to: &Layout) -> String {
+    render(&to_presses(text, from), to)
 }
 
 /// Convenience wrapper over [`convert`] taking layout ids.
@@ -500,6 +631,30 @@ mod tests {
         assert_eq!(convert_by_id("ςσ", "el", "us").unwrap(), "ws");
         // … but both uppercase to Σ, which is genuinely ambiguous.
         assert_eq!(convert_by_id("WS", "us", "el").unwrap(), "ΣΣ");
+    }
+
+    #[test]
+    fn greek_accents_roundtrip_through_dead_keys() {
+        // ά is `;` then `a` on the Greek layout, so on a US keyboard the same
+        // keystrokes read ";a" — and must convert back to the accented letter.
+        assert_eq!(convert_by_id("ά", "el", "us").unwrap(), ";a");
+        assert_eq!(convert_by_id(";a", "us", "el").unwrap(), "ά");
+        let word = "μία";
+        let latin = convert_by_id(word, "el", "us").unwrap();
+        assert_eq!(convert_by_id(&latin, "us", "el").unwrap(), word);
+    }
+
+    #[test]
+    fn french_circumflex_roundtrips() {
+        let word = "être";
+        let latin = convert_by_id(word, "fr", "us").unwrap();
+        assert_eq!(convert_by_id(&latin, "us", "fr").unwrap(), word);
+    }
+
+    #[test]
+    fn trailing_dead_key_shows_as_bare_accent() {
+        // Pressing `;` on Greek and stopping leaves the accent visible.
+        assert_eq!(convert_by_id(";", "us", "el").unwrap(), "΄");
     }
 
     #[test]

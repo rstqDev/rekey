@@ -1,0 +1,10 @@
+[package]
+name = "eval"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Measures Rekey's detection precision and recall against the training corpora."
+
+[dependencies]
+rekey-core = { workspace = true }
