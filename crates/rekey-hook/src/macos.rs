@@ -77,7 +77,7 @@ pub fn request_permission() -> bool {
         let key = CFString::wrap_under_get_rule(kAXTrustedCheckOptionPrompt);
         let value = core_foundation::boolean::CFBoolean::true_value();
         let options = CFDictionary::from_CFType_pairs(&[(key, value)]);
-        AXIsProcessTrustedWithOptions(options.as_CFTypeRef() as *const c_void)
+        AXIsProcessTrustedWithOptions(options.as_CFTypeRef())
     }
 }
 
@@ -154,11 +154,9 @@ pub fn current_layout() -> Option<String> {
 /// Bundle identifier of the frontmost application.
 pub fn frontmost_app() -> Option<String> {
     use objc2_app_kit::NSWorkspace;
-    unsafe {
-        let workspace = NSWorkspace::sharedWorkspace();
-        let app = workspace.frontmostApplication()?;
-        app.bundleIdentifier().map(|id| id.to_string())
-    }
+    let workspace = NSWorkspace::sharedWorkspace();
+    let app = workspace.frontmostApplication()?;
+    app.bundleIdentifier().map(|id| id.to_string())
 }
 
 /// True when a password field has taken over keyboard input.

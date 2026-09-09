@@ -49,24 +49,12 @@ fn assert_recovers(d: &Detector, intended: &str, intended_layout: &str, typed_on
     }
 }
 
-fn assert_switches(d: &Detector, word: &str, active: &str, expect: &str) {
-    match d.evaluate(word, active) {
-        Verdict::Switch(c) => assert_eq!(
-            c.converted, expect,
-            "{word:?} on {active} converted to {:?}, expected {expect:?}",
-            c.converted
-        ),
-        other => panic!("{word:?} on {active}: expected a switch to {expect:?}, got {other:?}"),
-    }
-}
-
 fn assert_keeps(d: &Detector, word: &str, active: &str) {
-    match d.evaluate(word, active) {
-        Verdict::Switch(c) => panic!(
+    if let Verdict::Switch(c) = d.evaluate(word, active) {
+        panic!(
             "{word:?} on {active} was wrongly converted to {:?} (delta {:.2})",
             c.converted, c.delta
-        ),
-        _ => {}
+        );
     }
 }
 

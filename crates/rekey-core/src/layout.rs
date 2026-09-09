@@ -234,8 +234,8 @@ impl Layout {
         // unreachable on this layout.
         let mut multi: HashMap<String, (usize, bool)> = HashMap::new();
         let mut max_multi = 0usize;
-        for i in 0..KEY_COUNT {
-            for (tok, shifted) in [(keys[i].0.clone(), false), (keys[i].1.clone(), true)] {
+        for (i, key) in keys.iter().enumerate() {
+            for (tok, shifted) in [(key.0.clone(), false), (key.1.clone(), true)] {
                 let len = tok.chars().count();
                 if len > 1 {
                     max_multi = max_multi.max(len);
