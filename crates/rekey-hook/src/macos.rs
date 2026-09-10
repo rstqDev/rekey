@@ -250,13 +250,22 @@ unsafe impl Sync for MacInjector {}
 
 impl MacInjector {
     pub fn new() -> Result<MacInjector, HookError> {
-        let source = CGEventSource::new(CGEventSourceStateID::HIDSystemState)
+        // `Private` deliberately, not `HIDSystemState`. A HID-state source
+        // reflects the modifier keys physically held right now, so a
+        // correction fired while the user still has Option down would inherit
+        // that flag — and since every injected event is built on keycode 0,
+        // which is the `a` key, an inherited modifier can override the Unicode
+        // string and type a stray `a` instead of the correction.
+        let source = CGEventSource::new(CGEventSourceStateID::Private)
             .map_err(|_| HookError::Os("cannot create a CGEventSource".into()))?;
         Ok(MacInjector { source })
     }
 
     fn post(&self, event: CGEvent) {
         event.set_integer_value_field(EventField::EVENT_SOURCE_USER_DATA, REKEY_SIGNATURE);
+        // Belt and braces with the private source above: whatever the user is
+        // holding, Rekey's own keystrokes carry no modifiers.
+        event.set_flags(CGEventFlags::empty());
         event.post(CGEventTapLocation::HID);
     }
 

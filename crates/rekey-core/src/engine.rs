@@ -187,6 +187,7 @@ impl Engine {
         // caret as a side effect.
         if event.modifiers.is_shortcut() {
             self.buffer.push(Input::Reset);
+            self.last_word = None;
             return Action::None;
         }
 
@@ -194,7 +195,11 @@ impl Engine {
 
         let input = match event.key {
             Key::Backspace => Input::Backspace,
-            Key::Navigation | Key::Escape | Key::Other | Key::ModifiersChanged => Input::Reset,
+            // The caret may have moved, so nothing behind it is known any more.
+            Key::Navigation | Key::Escape | Key::Other | Key::ModifiersChanged => {
+                self.last_word = None;
+                Input::Reset
+            }
             // Only whitespace ends a word. Punctuation cannot: `,` and `.` are
             // the Cyrillic letters б and ю, so treating them as boundaries
             // would chop the very words this app exists to fix.
@@ -244,15 +249,22 @@ impl Engine {
         }
         let delete = text.chars().count() + usize::from(terminator.is_some());
 
-        if let Some(mut cycle) = cycle {
-            cycle.index = cycle
-                .variants
-                .iter()
-                .position(|v| *v == corrected)
-                .unwrap_or(0);
-            cycle.auto = true;
-            self.last_word = Some(cycle);
-        }
+        // Always replace the record, never leave the previous one in place.
+        // A stale `last_word` points at text that is no longer under the
+        // caret, so the shortcut would delete and retype in the wrong place.
+        self.last_word = match cycle {
+            Some(mut cycle) => match cycle.variants.iter().position(|v| *v == corrected) {
+                Some(index) => {
+                    cycle.index = index;
+                    cycle.auto = true;
+                    Some(cycle)
+                }
+                // The correction is not one of the readings we enumerated, so
+                // the cycle's idea of what is on screen would be wrong.
+                None => None,
+            },
+            None => None,
+        };
         self.stats.corrections += 1;
 
         Action::Replace {
@@ -326,8 +338,18 @@ impl Engine {
             }
             // Released: a tap if nothing intervened and it was brief.
             (true, false) => match self.modifier_down_at.take() {
-                Some(at) if at.elapsed() <= MODIFIER_TAP_WINDOW => self.cycle_last_word(),
-                _ => Action::None,
+                Some(at) if at.elapsed() <= MODIFIER_TAP_WINDOW => {
+                    log::debug!("option tapped; cycling the last word");
+                    self.cycle_last_word()
+                }
+                Some(_) => {
+                    log::debug!("option held too long to be a tap");
+                    Action::None
+                }
+                None => {
+                    log::debug!("option released but the tap was disarmed");
+                    Action::None
+                }
             },
             _ => Action::None,
         }
@@ -341,11 +363,21 @@ impl Engine {
     /// back round to what they originally typed is treated as a correction of
     /// Rekey rather than of themselves.
     pub fn cycle_last_word(&mut self) -> Action {
+        // A part-typed word is what sits directly behind the caret. The last
+        // *completed* word does not, so acting on that record would delete the
+        // wrong span and retype over it — which surfaces as stray letters
+        // appearing on the previous word.
+        if !self.buffer.is_empty() {
+            self.last_word = self.cycle_for_word_in_progress();
+        }
+
         let Some(cycle) = self.last_word.as_mut() else {
+            log::debug!("no word to cycle");
             return Action::None;
         };
         let delete = cycle.on_screen_len();
-        let next = (cycle.index + 1) % cycle.variants.len();
+        let variant_count = cycle.variants.len();
+        let next = (cycle.index + 1) % variant_count;
         cycle.index = next;
 
         let text = cycle.text_with_terminator(next);
@@ -362,6 +394,10 @@ impl Engine {
             self.learn_exception(&original);
         }
 
+        log::debug!(
+            "cycle -> variant {next}/{variant_count} delete={delete} \
+             text={text:?} switch_to={switch_to:?}"
+        );
         // The buffer's idea of what is behind the caret no longer holds.
         self.buffer.push(Input::Reset);
         Action::Replace {
@@ -369,6 +405,15 @@ impl Engine {
             text,
             switch_to,
         }
+    }
+
+    /// Build a cycle for the word the user is part-way through typing.
+    fn cycle_for_word_in_progress(&mut self) -> Option<WordCycle> {
+        let active = self.last_context.as_ref()?.1.clone()?;
+        let word = self.buffer.take_current()?;
+        let (prefix, core, suffix) = self.detector.trim_affixes(&word.text, &active);
+        let (prefix, core, suffix) = (prefix.to_string(), core.to_string(), suffix.to_string());
+        self.build_cycle(&word.text, &prefix, &core, &suffix, None, &active)
     }
 
     /// Remember that the user prefers this word exactly as they typed it.
@@ -813,6 +858,54 @@ mod tests {
         };
         e.on_key(&chord, &c);
         assert_eq!(e.on_key(&alt(false), &c), Action::None);
+    }
+
+    #[test]
+    fn the_shortcut_acts_on_the_word_being_typed_not_an_earlier_one() {
+        let mut e = engine();
+        // A finished word, then a second one still in progress.
+        type_str(&mut e, "hello ", "us");
+        for ch in "ghbdtn".chars() {
+            e.on_key(&key(ch), &ctx("us"));
+        }
+        // The caret sits after "ghbdtn", so that is what must be rewritten.
+        let action = tap_alt(&mut e, "us");
+        match action {
+            Action::Replace { delete, text, .. } => {
+                assert_eq!(delete, 6, "should delete exactly the word in progress");
+                assert_eq!(text, "привет");
+            }
+            Action::None => panic!("expected the in-progress word to be cycled"),
+        }
+    }
+
+    #[test]
+    fn caret_movement_makes_the_shortcut_inert() {
+        // After an arrow key Rekey has no idea what is behind the caret, so
+        // rewriting anything would be a guess at the user's expense.
+        let mut e = engine();
+        type_str(&mut e, "hello ", "us");
+        e.on_key(&special(Key::Navigation), &ctx("us"));
+        assert_eq!(tap_alt(&mut e, "us"), Action::None);
+    }
+
+    #[test]
+    fn the_shortcut_never_acts_on_a_stale_word() {
+        // A word with no alternative reading must clear the record, or the
+        // shortcut would later delete and retype an earlier word that is no
+        // longer under the caret — which shows up as stray letters appearing
+        // in the wrong place.
+        let mut e = engine();
+        type_str(&mut e, "hello ", "us");
+        assert!(e.last_word.is_some(), "a cyclable word should be recorded");
+
+        // "42" is refused as not-a-word, so it yields no cycle.
+        type_str(&mut e, "42 ", "us");
+        assert!(
+            e.last_word.is_none(),
+            "the earlier word must not still be cyclable"
+        );
+        assert_eq!(tap_alt(&mut e, "us"), Action::None);
     }
 
     #[test]

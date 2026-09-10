@@ -202,6 +202,36 @@ fn main() {
         return;
     }
 
+    // Demonstrates what an inherited modifier flag does to injected text.
+    // Every injected event is built on keycode 0 — the `a` key — so a stray
+    // flag can override the Unicode string entirely.
+    if args.iter().any(|a| a == "--flags-demo") {
+        use core_graphics::event::CGEventFlags;
+        let source =
+            CGEventSource::new(CGEventSourceStateID::HIDSystemState).expect("create event source");
+        std::thread::sleep(Duration::from_secs(3));
+        for (label, flags) in [
+            ("clean", CGEventFlags::empty()),
+            ("option", CGEventFlags::CGEventFlagAlternate),
+        ] {
+            for ch in format!("[{label}]").chars() {
+                for down in [true, false] {
+                    let e = CGEvent::new_keyboard_event(source.clone(), 0, down)
+                        .expect("keyboard event");
+                    e.set_string(&ch.to_string());
+                    e.set_flags(flags);
+                    e.post(CGEventTapLocation::HID);
+                }
+                std::thread::sleep(Duration::from_millis(30));
+            }
+        }
+        std::thread::sleep(Duration::from_millis(400));
+        copy_all();
+        std::thread::sleep(Duration::from_millis(300));
+        println!("flags demo done; result on the clipboard");
+        return;
+    }
+
     if args.iter().any(|a| a == "--tap-option") {
         tap_option();
         std::thread::sleep(Duration::from_millis(700));
