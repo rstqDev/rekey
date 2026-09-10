@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Merged into the generated bundle's Info.plist by tauri-build.
+
+  LSUIElement makes Rekey a genuine menu bar app: no Dock icon, no app switcher
+  entry, no menu bar takeover when it is focused. Without it a background
+  utility looks like a window you forgot to close.
+-->
+<plist version="1.0">
+<dict>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSHumanReadableCopyright</key>
+	<string>© 2026 Rostislav Ladnov. MIT licensed.</string>
+</dict>
+</plist>
