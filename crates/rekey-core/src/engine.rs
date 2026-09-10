@@ -7,7 +7,7 @@
 
 use crate::buffer::{Buffer, Input};
 use crate::config::Config;
-use crate::detect::{Detector, Verdict};
+use crate::detect::{Detector, Skip, Verdict};
 use crate::input::{Context, Key, KeyEvent, Modifiers, TextWriter};
 use crate::layout;
 use crate::model::Models;
@@ -203,11 +203,7 @@ impl Engine {
         }
 
         if self.modifier_down_at.is_some() {
-            log::debug!(
-                "disarming the modifier tap because of {:?} ({:?})",
-                event.key,
-                event.character
-            );
+            log::debug!("disarming the modifier tap because of {:?}", event.key);
         }
         self.modifier_down_at = None;
 
@@ -253,12 +249,27 @@ impl Engine {
         let cycle = self.build_cycle(text, prefix, core, suffix, terminator, active);
         let verdict = self.detector.evaluate(core, active);
 
+        // Deliberately records the decision and not the word. Rekey promises
+        // that what you type never leaves the machine, and a log file on disk
+        // is not an exception to that — a diagnostic that quietly becomes a
+        // keystroke record would be worse than having no diagnostics at all.
         log::debug!(
-            "word {text:?} on {active} -> {}",
+            "word of {} chars on {active} -> {}",
+            core.chars().count(),
             match &verdict {
-                Verdict::Switch(c) => format!("switch to {:?}", c.converted),
-                Verdict::Ambiguous(c) => format!("ambiguous ({:?})", c.converted),
-                Verdict::Keep(reason) => format!("keep ({reason:?})"),
+                Verdict::Switch(_) => "corrected",
+                Verdict::Ambiguous(_) => "ambiguous",
+                Verdict::Keep(reason) => match reason {
+                    Skip::TooShort => "kept (too short)",
+                    Skip::AllCaps => "kept (all caps)",
+                    Skip::UserException => "kept (user exception)",
+                    Skip::NotAWord => "kept (not a word)",
+                    Skip::NotConfident => "kept (not confident)",
+                    Skip::Disabled => "kept (disabled)",
+                    Skip::NoAlternatives => "kept (no other layouts)",
+                    Skip::ModelMissing => "kept (no model)",
+                    Skip::Unconvertible => "kept (unconvertible)",
+                },
             }
         );
 
@@ -352,7 +363,7 @@ impl Engine {
         let others_held = modifiers.shift || modifiers.control || modifiers.meta;
         let was_down = std::mem::replace(&mut self.alt_was_down, alt_down);
         log::debug!(
-            "modifiers: alt={alt_down} was={was_down} others={others_held} armed={}",
+            "modifier change: alt={alt_down} was={was_down} others={others_held} armed={}",
             self.modifier_down_at.is_some()
         );
 
@@ -428,7 +439,8 @@ impl Engine {
 
         log::info!(
             "cycle -> variant {next}/{variant_count} delete={delete} \
-             text={text:?} switch_to={switch_to:?}"
+             length={} switch_to={switch_to:?}",
+            text.chars().count()
         );
         // The buffer's idea of what is behind the caret no longer holds.
         self.buffer.push(Input::Reset);

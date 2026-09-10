@@ -520,9 +520,6 @@ where
                     let keycode =
                         event.get_integer_value_field(EventField::KEYBOARD_EVENT_KEYCODE) as u16;
                     let character = event_character(event);
-                    if !synthetic {
-                        log::trace!("keydown code={keycode} char={character:?}");
-                    }
                     Some(KeyEvent {
                         character,
                         key: classify(keycode, character),

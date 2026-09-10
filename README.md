@@ -104,6 +104,19 @@ anything from an excluded app or a password field — are sent to Anthropic's AP
 in the background, and the answer is cached locally so each word is sent at
 most once. Leave it off and Rekey never opens a socket.
 
+### The log file
+
+Rekey writes a small log beside its settings
+(`~/Library/Application Support/app.rekey.desktop/rekey.log` on macOS),
+truncated on every launch, so that a misbehaviour can be diagnosed without
+guesswork.
+
+**It never records what you type.** Entries note decisions and lengths — "word
+of 6 chars on us -> corrected" — never the word itself. A diagnostic that
+quietly became a keystroke record would be worse than having no diagnostics at
+all, so the distinction is deliberate and worth checking if you change the
+logging.
+
 ## Install
 
 Download the latest build from [Releases](../../releases).

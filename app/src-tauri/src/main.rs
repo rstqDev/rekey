@@ -294,7 +294,7 @@ fn init_logging() {
     // this when the app is started from a shell.
     let mut builder = env_logger::Builder::from_env(
         env_logger::Env::default()
-            .default_filter_or("info,rekey=debug,rekey_core=debug,rekey_hook=trace"),
+            .default_filter_or("info,rekey=debug,rekey_core=debug,rekey_hook=debug"),
     );
     if let Some(file) = file {
         let file = std::sync::Mutex::new(file);

@@ -163,7 +163,10 @@ fn apply(handle: &AppHandle, injector: &dyn TextWriter, action: &Action) {
         return;
     };
 
-    log::info!("applying: delete={delete} text={text:?} switch_to={switch_to:?}");
+    log::info!(
+        "applying: delete={delete} length={} switch_to={switch_to:?}",
+        text.chars().count()
+    );
 
     let selected = match switch_to {
         Some(layout) => select_layout_and_wait(handle, layout),
@@ -189,7 +192,7 @@ fn apply(handle: &AppHandle, injector: &dyn TextWriter, action: &Action) {
     };
 
     if !replayed {
-        log::info!("replaying key presses was not possible; typing {text:?} directly");
+        log::info!("replaying key presses was not possible; typing directly instead");
         injector.type_text(text);
     }
 }
