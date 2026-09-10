@@ -12,6 +12,7 @@ use rekey_core::engine::Engine;
 use rekey_core::model::Models;
 use service::SharedEngine;
 use settings::Settings;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent};
@@ -21,9 +22,9 @@ use tauri::{AppHandle, Manager, State};
 struct AppState {
     engine: SharedEngine,
     settings: Mutex<Settings>,
-    /// False when the keyboard hook could not start, which on macOS means
-    /// Accessibility has not been granted yet.
-    hook_running: Mutex<bool>,
+    /// True once the keyboard hook is actually installed. It flips on by
+    /// itself when the user grants Accessibility, with no relaunch.
+    hook_running: Arc<AtomicBool>,
 }
 
 /// A snapshot for the settings window.
@@ -95,7 +96,7 @@ fn get_state(state: State<'_, AppState>) -> UiState {
         corrections: stats.corrections,
         undos: stats.undos,
         has_permission: rekey_hook::platform::has_permission(),
-        hook_running: *state.hook_running.lock().expect("hook lock"),
+        hook_running: state.hook_running.load(Ordering::Relaxed),
         available_layouts: layout_catalog(),
         models_loaded: {
             let mut langs: Vec<String> = engine
@@ -307,27 +308,28 @@ fn main() {
             let engine: SharedEngine =
                 Arc::new(Mutex::new(Engine::new(models, settings.config.clone())));
 
-            // Starting the hook can fail (no Accessibility grant yet). That is
-            // not fatal: the settings window opens and explains what to do.
+            // The hook waits for Accessibility rather than failing, so this
+            // only errors if the platform layer itself is unavailable.
             let hook_running = match service::spawn(engine.clone()) {
-                Ok(()) => true,
+                Ok(flag) => flag,
                 Err(e) => {
-                    log::warn!("keyboard hook not started: {e}");
-                    false
+                    log::warn!("keyboard hook unavailable: {e}");
+                    Arc::new(AtomicBool::new(false))
                 }
             };
 
             build_tray(&handle, engine.clone())?;
 
+            let started = hook_running.load(Ordering::Relaxed);
             app.manage(AppState {
                 engine,
                 settings: Mutex::new(settings),
-                hook_running: Mutex::new(hook_running),
+                hook_running,
             });
 
             // First run, or permission still missing: show the window so the
             // user is not left with a silent menu bar icon.
-            if !hook_running || !settings::config_path().exists() {
+            if !started || !settings::config_path().exists() {
                 show_settings(&handle);
             }
             Ok(())

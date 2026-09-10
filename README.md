@@ -129,6 +129,27 @@ cargo tauri build                                                     # or: carg
 
 Requires Rust 1.77+. On macOS you also need Xcode command line tools.
 
+### Signing on macOS
+
+An unsigned or ad-hoc-signed build works, with one sharp edge: macOS ties the
+Accessibility grant to the app's *code signature*, not its path. Ad-hoc
+signatures change on every build, so each rebuild silently invalidates the
+grant — System Settings keeps showing Rekey as enabled while the app is told it
+has no permission. Signing with a real certificate fixes it, because signed
+apps are identified by team and bundle id instead.
+
+```bash
+security find-identity -v -p codesigning        # find yours
+export APPLE_SIGNING_IDENTITY="Apple Development: you@example.com (XXXXXXXXXX)"
+cargo tauri build
+```
+
+If the grant does get into a bad state, clear it and grant once more:
+
+```bash
+tccutil reset Accessibility app.rekey.desktop
+```
+
 ## How it works
 
 ```

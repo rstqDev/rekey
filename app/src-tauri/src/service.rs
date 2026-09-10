@@ -4,6 +4,7 @@
 use rekey_core::engine::{Action, Engine};
 use rekey_core::input::{Context, TextWriter};
 use rekey_hook::platform;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -23,6 +24,13 @@ const CONTEXT_TTL: Duration = Duration::from_millis(150);
 /// Replacing immediately can race it and eat the wrong character. A short
 /// pause costs nothing perceptible and removes the race.
 const REPLACE_DELAY: Duration = Duration::from_millis(25);
+
+/// How often to re-check whether Accessibility has been granted.
+///
+/// macOS gives no notification when the user flips the switch, so the only way
+/// to notice is to ask. A second is far below the time it takes to find the
+/// setting, and the check is a cheap in-process call.
+const PERMISSION_POLL: Duration = Duration::from_secs(1);
 
 struct ContextCache {
     value: Context,
@@ -49,15 +57,19 @@ impl ContextCache {
 /// Shared handle to the running engine, used by the UI and the tray.
 pub type SharedEngine = Arc<Mutex<Engine>>;
 
-/// Start the keyboard hook on its own thread.
+/// Start the keyboard hook, waiting for Accessibility if it is not granted yet.
 ///
-/// The hook API blocks forever, so it gets a dedicated thread; the engine is
-/// shared with the UI behind a mutex that is only ever held for the duration of
-/// a single keystroke evaluation.
-pub fn spawn(engine: SharedEngine) -> Result<(), rekey_hook::HookError> {
-    if !platform::has_permission() {
-        return Err(rekey_hook::HookError::PermissionDenied);
-    }
+/// Returns a flag the UI can read to tell whether corrections are actually
+/// running. The hook API blocks forever, so it gets a dedicated thread; the
+/// engine is shared with the UI behind a mutex that is only ever held for the
+/// duration of a single keystroke evaluation.
+///
+/// Waiting rather than failing matters: the alternative is telling the user to
+/// quit and reopen the app after granting permission, which is the single most
+/// confusing moment in installing a tool like this.
+pub fn spawn(engine: SharedEngine) -> Result<Arc<AtomicBool>, rekey_hook::HookError> {
+    let running = Arc::new(AtomicBool::new(false));
+    let flag = running.clone();
 
     let injector: Arc<dyn TextWriter> = Arc::new(new_injector()?);
     let replacements = spawn_injector(injector)?;
@@ -65,7 +77,16 @@ pub fn spawn(engine: SharedEngine) -> Result<(), rekey_hook::HookError> {
     std::thread::Builder::new()
         .name("rekey-hook".into())
         .spawn(move || {
+            if !platform::has_permission() {
+                log::info!("waiting for Accessibility permission…");
+                while !platform::has_permission() {
+                    std::thread::sleep(PERMISSION_POLL);
+                }
+                log::info!("Accessibility granted; starting the keyboard hook");
+            }
+
             let mut cache = ContextCache::new();
+            flag.store(true, Ordering::Relaxed);
             let result = platform::run(move |event| {
                 let ctx = cache.get().clone();
                 let action = match engine.lock() {
@@ -84,13 +105,14 @@ pub fn spawn(engine: SharedEngine) -> Result<(), rekey_hook::HookError> {
                     let _ = replacements.send(action);
                 }
             });
+            flag.store(false, Ordering::Relaxed);
             if let Err(e) = result {
                 log::error!("keyboard hook stopped: {e}");
             }
         })
         .map_err(|e| rekey_hook::HookError::Os(e.to_string()))?;
 
-    Ok(())
+    Ok(running)
 }
 
 /// Start the thread that applies corrections, and return its inbox.

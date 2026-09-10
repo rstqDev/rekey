@@ -64,7 +64,7 @@ if (!window.__TAURI__ && isLocalDevServer()) {
     corrections: 1284,
     undos: 3,
     has_permission: true,
-    hook_running: true,
+    hook_running: true, // flips on by itself once Accessibility is granted
     available_layouts: LAYOUTS.map(([id, name, language, limited]) => ({
       id, name, language, limited,
     })),
