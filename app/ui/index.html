@@ -90,10 +90,9 @@
         <input type="checkbox" id="ai" />
         <span>
           <span class="row-title">Ask Claude about ambiguous words</span>
-          <span class="fine">Off by default. When on, single ambiguous words —
-            never whole sentences — are sent to Anthropic's API in the
-            background, and the answer is remembered locally. Everything else
-            stays on this machine.</span>
+          <span class="fine">Off by default. Sends single ambiguous words — never
+            whole sentences — to Anthropic's API and remembers the answer
+            locally. Everything else stays on this machine.</span>
         </span>
       </label>
       <div id="ai-key-row" class="key-row" hidden>
@@ -106,11 +105,10 @@
       </div>
     </section>
 
-    <section>
+    <section class="compact">
       <h2>Never correct in</h2>
-      <p class="fine">Password managers and terminals, where a silent rewrite
-        would do real damage.</p>
-      <ul id="excluded" class="chips"></ul>
+      <p class="fine" id="excluded-summary">Password managers, terminals and
+        password fields, where a silent rewrite would do real damage.</p>
     </section>
 
     <section id="exceptions-section" hidden>
@@ -125,6 +123,8 @@
     <span id="version" class="fine"></span>
   </footer>
 
+  <!-- Inert when running inside Tauri; see dev-mock.js. -->
+  <script src="dev-mock.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

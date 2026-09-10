@@ -14,19 +14,33 @@ const SENSITIVITY_HINTS = {
 
 /** Last snapshot from Rust; the basis for every save. */
 let state = null;
-/** True while applying a snapshot, so programmatic changes don't re-save. */
-let loading = false;
 
 const $ = (id) => document.getElementById(id);
 
+/** Read a fresh snapshot and rebuild the whole window. */
 async function refresh() {
   state = await invoke("get_state");
   render();
 }
 
-function render() {
-  loading = true;
+/**
+ * Refresh only the things that change on their own while the user is typing
+ * elsewhere.
+ *
+ * The window must never rebuild its controls on a timer: doing so clobbers a
+ * half-finished edit, and a click that lands during a rebuild is lost.
+ */
+async function pollLiveFields() {
+  const fresh = await invoke("get_state");
+  state.corrections = fresh.corrections;
+  state.undos = fresh.undos;
+  state.has_permission = fresh.has_permission;
+  state.hook_running = fresh.hook_running;
+  renderStats();
+  $("permission").hidden = fresh.has_permission && fresh.hook_running;
+}
 
+function render() {
   $("enabled").checked = state.enabled;
   $("permission").hidden = state.has_permission && state.hook_running;
   $("no-models").hidden = state.models_loaded.length > 0;
@@ -43,11 +57,10 @@ function render() {
   // Never echo a stored key back into the DOM; show that one exists instead.
   $("api-key").placeholder = state.has_api_key ? "key saved — type to replace" : "sk-ant-…";
 
-  renderChips("excluded", state.excluded_apps);
+  $("excluded-summary").title = state.excluded_apps.join("\n");
   $("exceptions-section").hidden = state.exceptions.length === 0;
   renderChips("exceptions", state.exceptions);
 
-  loading = false;
   updatePreview();
 }
 
@@ -132,7 +145,7 @@ function renderChips(id, values) {
 
 /** Send the current config back to Rust with `changes` applied. */
 async function save(changes = {}, extras = {}) {
-  if (loading || !state) return;
+  if (!state) return;
   const config = {
     enabled: state.enabled,
     layouts: state.layouts,
@@ -197,10 +210,10 @@ $("open-settings").addEventListener("click", () =>
   invoke("open_accessibility_settings")
 );
 
-// Stats change while the user is typing elsewhere, so keep the footer live
-// whenever the window is actually on screen.
+// The correction count climbs while the user types in other apps, so keep the
+// footer live — without touching any control they might be using.
 setInterval(() => {
-  if (!document.hidden) refresh();
+  if (!document.hidden && state) pollLiveFields();
 }, 2500);
 
 refresh();
