@@ -106,6 +106,9 @@ pub struct Engine {
     /// When a modifier went down with nothing else pressed since.
     modifier_down_at: Option<Instant>,
     alt_was_down: bool,
+    /// The layout Rekey has just asked the system to switch to, so that its own
+    /// switch is not mistaken for the user changing context.
+    expected_layout: Option<String>,
     stats: Stats,
 }
 
@@ -118,6 +121,7 @@ impl Engine {
             last_context: None,
             modifier_down_at: None,
             alt_was_down: false,
+            expected_layout: None,
             stats: Stats::default(),
         }
     }
@@ -146,15 +150,22 @@ impl Engine {
         }
 
         // The caret may have moved between apps or layouts. Either way the
-        // buffer's idea of what is behind the caret is no longer trustworthy.
+        // buffer's idea of what is behind the caret is no longer trustworthy —
+        // *unless* Rekey is the one that changed the layout, as it does after
+        // every correction. Treating its own switch as an external event threw
+        // away the word record the shortcut needs, so tapping Option worked
+        // only if it beat the context sampler to it.
         let context_key = (ctx.app.clone(), ctx.layout.clone());
-        if self
-            .last_context
-            .as_ref()
-            .is_some_and(|prev| *prev != context_key)
-        {
-            self.buffer.push(Input::Reset);
-            self.last_word = None;
+        if let Some(previous) = self.last_context.as_ref() {
+            if *previous != context_key {
+                let same_app = previous.0 == context_key.0;
+                let expected = self.expected_layout.take();
+                let we_switched = same_app && expected.is_some() && ctx.layout == expected;
+                if !we_switched {
+                    self.buffer.push(Input::Reset);
+                    self.last_word = None;
+                }
+            }
         }
         self.last_context = Some(context_key);
 
@@ -266,6 +277,7 @@ impl Engine {
             None => None,
         };
         self.stats.corrections += 1;
+        self.expected_layout = Some(candidate.to_layout.to_string());
 
         Action::Replace {
             delete,
@@ -400,6 +412,7 @@ impl Engine {
         );
         // The buffer's idea of what is behind the caret no longer holds.
         self.buffer.push(Input::Reset);
+        self.expected_layout = switch_to.clone();
         Action::Replace {
             delete,
             text,
@@ -455,6 +468,7 @@ impl Engine {
             self.learn_exception(&original);
         }
         self.buffer.push(Input::Reset);
+        self.expected_layout = switch_to.clone();
         Action::Replace {
             delete,
             text,
@@ -524,6 +538,11 @@ mod tests {
         let c = ctx(layout);
         e.on_key(&alt(true), &c);
         e.on_key(&alt(false), &c)
+    }
+
+    /// Render `word` as the same physical keys would produce on `to`.
+    fn rekey_core_convert(word: &str, from: &str, to: &str) -> String {
+        crate::layout::convert_by_id(word, from, to).expect("known layouts")
     }
 
     fn replaced_text(action: &Action) -> &str {
@@ -877,6 +896,39 @@ mod tests {
             }
             Action::None => panic!("expected the in-progress word to be cycled"),
         }
+    }
+
+    #[test]
+    fn the_shortcut_survives_rekeys_own_layout_switch() {
+        // The reported case: type Cyrillic on the Russian layout, let Rekey
+        // correct it to English — which also switches the keyboard — and then
+        // reach for the shortcut. Rekey must not read its own switch as the
+        // user changing context and discard the word it just corrected.
+        let mut e = engine();
+
+        // "руддщ" typed on the Russian layout is "hello" on English.
+        let typed = rekey_core_convert("hello", "us", "ru");
+        let correction = type_str(&mut e, &format!("{typed} "), "ru");
+        assert_eq!(replaced_text(&correction), "hello ");
+        assert_eq!(correction.layout_switch(), Some("us"));
+
+        // The system layout now follows, exactly as the app makes it.
+        let action = tap_alt(&mut e, "us");
+        assert_eq!(
+            replaced_text(&action),
+            format!("{typed} "),
+            "the shortcut should put back what was originally typed"
+        );
+    }
+
+    #[test]
+    fn a_layout_change_the_user_made_still_clears_the_record() {
+        // Only Rekey's *own* switch is exempt. If the user changes layout
+        // themselves, Rekey has no idea what happened in between.
+        let mut e = engine();
+        type_str(&mut e, "hello ", "us");
+        // No correction happened, so no switch was expected.
+        assert_eq!(tap_alt(&mut e, "uk"), Action::None);
     }
 
     #[test]
