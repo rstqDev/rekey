@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Rekey card</title>
+<style>
+  /* Promotional card, rendered to PNG by Chrome headless at 1600x900 —
+     the 16:9 that X shows without cropping. Content is filled in from the
+     query string so one template covers every variant. */
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    width: 1600px;
+    height: 900px;
+    overflow: hidden;
+  }
+
+  body {
+    background: #0e0e11;
+    color: #f0f0f3;
+    font: 400 28px/1.5 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 0 110px;
+    position: relative;
+  }
+
+  /* A soft brand wash so the card is not a flat rectangle. */
+  body::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(900px 520px at 82% 12%, rgba(139, 131, 247, 0.20), transparent 62%),
+      radial-gradient(700px 460px at 8% 96%, rgba(126, 226, 184, 0.10), transparent 60%);
+    pointer-events: none;
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    position: absolute;
+    top: 66px;
+    left: 110px;
+    font-size: 32px;
+    font-weight: 640;
+    letter-spacing: -0.01em;
+  }
+
+  .mark {
+    width: 56px;
+    height: 56px;
+    border-radius: 15px;
+    background: #4f46e5;
+    display: grid;
+    place-items: center;
+    font-size: 32px;
+    color: #fff;
+  }
+
+  h1 {
+    font-size: 82px;
+    line-height: 1.14;
+    letter-spacing: -0.028em;
+    font-weight: 660;
+    max-width: 20ch;
+  }
+
+  .swap {
+    display: flex;
+    align-items: center;
+    gap: 42px;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 88px;
+    font-weight: 500;
+  }
+
+  .wrong { color: #ff8f8f; }
+  .right { color: #7ee2b8; }
+  .arrow { color: #6a6a78; font-size: 62px; }
+
+  .sub {
+    margin-top: 40px;
+    font-size: 34px;
+    color: #9a9aa6;
+    max-width: 36ch;
+    line-height: 1.45;
+  }
+
+  .foot {
+    position: absolute;
+    bottom: 62px;
+    left: 110px;
+    right: 110px;
+    display: flex;
+    align-items: baseline;
+    gap: 24px;
+    font-size: 27px;
+    color: #6a6a78;
+  }
+
+  .foot .url { color: #8b83f7; font-weight: 560; }
+  .spacer { flex: 1; }
+
+  .stat {
+    display: flex;
+    gap: 70px;
+    margin-top: 18px;
+  }
+
+  .stat div { line-height: 1.2; }
+  .stat .n { font-size: 76px; font-weight: 660; letter-spacing: -0.02em; }
+  .stat .n.good { color: #7ee2b8; }
+  .stat .l { font-size: 25px; color: #9a9aa6; margin-top: 8px; }
+
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+  <div class="brand"><span class="mark">⇄</span><span>Rekey</span></div>
+
+  <h1 id="headline" hidden></h1>
+
+  <div class="swap" id="swap" hidden>
+    <span class="wrong" id="wrong"></span>
+    <span class="arrow">→</span>
+    <span class="right" id="right"></span>
+  </div>
+
+  <div class="stat" id="stat" hidden>
+    <div><div class="n good" id="n1"></div><div class="l" id="l1"></div></div>
+    <div><div class="n" id="n2"></div><div class="l" id="l2"></div></div>
+  </div>
+
+  <p class="sub" id="sub" hidden></p>
+
+  <div class="foot">
+    <span>Free · open source · macOS &amp; Windows</span>
+    <span class="spacer"></span>
+    <span class="url" id="url">github.com/rstqDev/rekey</span>
+  </div>
+
+<script>
+  // Fields arrive as query parameters so make_cards.py can drive one template.
+  const p = new URLSearchParams(location.search);
+  const set = (id, value) => {
+    const el = document.getElementById(id);
+    if (value) { el.textContent = value; el.hidden = false; }
+  };
+
+  set("headline", p.get("headline"));
+  set("sub", p.get("sub"));
+  // Overridable so the footer can point at a real domain once one exists,
+  // rather than advertising one nobody owns.
+  if (p.get("url")) document.getElementById("url").textContent = p.get("url");
+
+  if (p.get("wrong")) {
+    document.getElementById("swap").hidden = false;
+    set("wrong", p.get("wrong"));
+    set("right", p.get("right"));
+  }
+  if (p.get("n1")) {
+    document.getElementById("stat").hidden = false;
+    set("n1", p.get("n1")); set("l1", p.get("l1"));
+    set("n2", p.get("n2")); set("l2", p.get("l2"));
+  }
+</script>
+</body>
+</html>

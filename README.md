@@ -120,7 +120,7 @@ The build is not notarized yet, so the first launch needs a right-click → Open
 ## Build from source
 
 ```bash
-git clone https://github.com/rostislavladnov/rekey
+git clone https://github.com/rstqDev/rekey
 cd rekey
 ./tools/fetch_corpora.sh                                              # word lists
 cargo run --release -p modelgen -- tools/.cache crates/rekey-core/data/models

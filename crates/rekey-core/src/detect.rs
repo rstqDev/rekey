@@ -250,7 +250,10 @@ impl Detector {
         if len < self.config.min_word_len {
             return Some(Skip::TooShort);
         }
-        if word.chars().any(|c| c.is_numeric() || c.is_whitespace() || c.is_control()) {
+        if word
+            .chars()
+            .any(|c| c.is_numeric() || c.is_whitespace() || c.is_control())
+        {
             return Some(Skip::NotAWord);
         }
         if word.chars().any(|c| STRUCTURAL.contains(&c)) {

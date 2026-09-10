@@ -1,0 +1,60 @@
+{
+  "repo": "https://github.com/rstqDev/rekey",
+  "posts": [
+    {
+      "id": "launch",
+      "card": "swap-ru",
+      "text": "I kept typing Russian with the English layout still on.\n\nghbdtn. cgfcb,j. Every single day.\n\nSo I built Rekey: it notices the word came out on the wrong layout and fixes it as you type. Free, open source, runs entirely on your machine.\n\nmacOS + Windows: {repo}"
+    },
+    {
+      "id": "accuracy",
+      "card": "accuracy",
+      "text": "The hard part of a layout switcher isn't catching mistakes. It's not creating them.\n\nBeing right 95% of the time is fine until the other 5% lands in a password field.\n\nRekey changed 0.00% of correctly-typed words across 54,000 tests.\n\n{repo}"
+    },
+    {
+      "id": "slang",
+      "card": "swap-slang",
+      "text": "Dictionaries don't contain \"норм\", \"чувак\", \"gonna\" or \"lol\".\n\nSo Rekey's language models are trained on subtitle corpora instead — transcribed speech, full of the words people actually type.\n\nyjhv xedfr → норм чувак\n\n{repo}"
+    },
+    {
+      "id": "privacy",
+      "card": "privacy",
+      "text": "Rekey reads every key you press. What it does with them:\n\nNothing leaves your machine. No telemetry, no account, no network calls. The language models ship inside the app — 4.6 MB for ten languages.\n\nIt's MIT licensed, so you can check.\n\n{repo}"
+    },
+    {
+      "id": "scripts",
+      "card": "swap-he",
+      "text": "Rekey speaks five scripts properly: Cyrillic, Hebrew, Arabic, Greek and Latin.\n\nRussian, Ukrainian, Hebrew, Arabic and Greek all run 88–99% accuracy with zero false positives.\n\nakuo → שלום\n\n{repo}"
+    },
+    {
+      "id": "honest-limits",
+      "text": "An honest limitation, published on our own landing page:\n\nRekey barely helps with Spanish or German.\n\nSpanish and US QWERTY produce identical letters for a–z. Only ñ and the accents differ. There's almost nothing to detect.\n\n{repo}"
+    },
+    {
+      "id": "bug-unicameral",
+      "text": "A bug I enjoyed finding.\n\nRekey skips ALL-CAPS words — usually acronyms. The check: no character is lowercase.\n\nHebrew and Arabic have no lowercase. Every word in both read as SHOUTING.\n\nBoth scored 0% until I fixed it.\n\n{repo}"
+    },
+    {
+      "id": "bug-greek",
+      "text": "Greek detection sat at 4.8% and I couldn't see why.\n\nGreek accents are dead keys, so a mistyped Greek word contains a semicolon — and my filter threw those out as \"not a word\".\n\nOne fix later: 95.8%.\n\n{repo}"
+    },
+    {
+      "id": "punctuation",
+      "card": "swap-ru-thanks",
+      "text": "Russian б and ю live on the , and . keys.\n\nSo \"спасибо\" typed on a US layout comes out as cgfcb,j — commas and all.\n\nAny switcher that filters input to \"letters only\" discards the exact words it exists to fix.\n\n{repo}"
+    },
+    {
+      "id": "no-intercept",
+      "text": "Rekey never swallows a keystroke.\n\nThe character you typed always lands first. Corrections come after, as ordinary backspaces and text.\n\nThat's why it works in every app — editors, browsers, chat — without integrating with any.\n\n{repo}"
+    },
+    {
+      "id": "undo",
+      "text": "Every automatic correction needs a one-key undo, or people stop trusting it.\n\nIn Rekey, undoing a correction also teaches it: that word is never auto-corrected again.\n\nDisagreeing with the tool once should be enough.\n\n{repo}"
+    },
+    {
+      "id": "open-source",
+      "card": "open-source",
+      "text": "If an app watches your keyboard, \"trust me\" isn't good enough.\n\nRekey is MIT licensed, builds from source in three commands, and the accuracy numbers on the site are reproducible with one:\n\ncargo run -p eval\n\n{repo}"
+    }
+  ]
+}

@@ -109,8 +109,8 @@ fn recognises_slang_not_found_in_dictionaries() {
 fn leaves_real_english_alone() {
     let d = detector(&["us", "ru"]);
     for w in [
-        "hello", "world", "keyboard", "the", "meeting", "tomorrow", "because",
-        "language", "switch", "happy", "friend", "computer",
+        "hello", "world", "keyboard", "the", "meeting", "tomorrow", "because", "language",
+        "switch", "happy", "friend", "computer",
     ] {
         assert_keeps(&d, w, "us");
     }
@@ -119,7 +119,14 @@ fn leaves_real_english_alone() {
 #[test]
 fn leaves_real_russian_alone() {
     let d = detector(&["us", "ru"]);
-    for w in ["привет", "спасибо", "хорошо", "человек", "работа", "сегодня"] {
+    for w in [
+        "привет",
+        "спасибо",
+        "хорошо",
+        "человек",
+        "работа",
+        "сегодня",
+    ] {
         assert_keeps(&d, w, "ru");
     }
 }
@@ -129,8 +136,15 @@ fn never_touches_passwords_or_identifiers() {
     let d = detector(&["us", "ru"]);
     // Anything with a digit or symbol is refused outright.
     for s in [
-        "hunter2", "P@ssw0rd", "git@github.com", "/usr/local/bin", "--force",
-        "v1.2.3", "user_name", "#hashtag", "a1b2c3",
+        "hunter2",
+        "P@ssw0rd",
+        "git@github.com",
+        "/usr/local/bin",
+        "--force",
+        "v1.2.3",
+        "user_name",
+        "#hashtag",
+        "a1b2c3",
     ] {
         match d.evaluate(s, "us") {
             Verdict::Keep(Skip::NotAWord) => {}

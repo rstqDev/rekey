@@ -50,4 +50,3 @@ impl fmt::Display for HookError {
 }
 
 impl std::error::Error for HookError {}
-

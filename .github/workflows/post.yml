@@ -1,0 +1,60 @@
+name: Post to X
+
+# Publishing is deliberately not automatic on push. It runs on a schedule once
+# the repository secrets exist, and can always be triggered by hand — with a
+# dry run as the default, so a mistaken click posts nothing.
+
+on:
+  schedule:
+    # 15:00 UTC on Tuesdays and Thursdays — late morning in the US, evening in
+    # Europe, which is when this audience is awake.
+    - cron: "0 15 * * 2,4"
+  workflow_dispatch:
+    inputs:
+      post_id:
+        description: "Specific post id (blank = next in the rotation)"
+        required: false
+      publish:
+        description: "Actually publish? Leave false to preview."
+        type: boolean
+        default: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the queue
+        run: python3 automation/check_content.py
+
+      - name: Render promotional cards
+        run: python3 automation/make_cards.py
+
+      - name: Preview
+        run: |
+          python3 automation/post.py ${{ inputs.post_id && format('--id {0}', inputs.post_id) || '' }}
+
+      - name: Publish
+        # Scheduled runs publish; manual runs only when the box was ticked.
+        if: github.event_name == 'schedule' || inputs.publish
+        env:
+          X_API_KEY: ${{ secrets.X_API_KEY }}
+          X_API_SECRET: ${{ secrets.X_API_SECRET }}
+          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_SECRET: ${{ secrets.X_ACCESS_SECRET }}
+        run: |
+          python3 automation/post.py --post ${{ inputs.post_id && format('--id {0}', inputs.post_id) || '' }}
+
+      - name: Record what went out
+        if: github.event_name == 'schedule' || inputs.publish
+        run: |
+          if [[ -n "$(git status --porcelain automation/state.json)" ]]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add automation/state.json
+            git commit -m "Record posted item [skip ci]"
+            git push
+          fi

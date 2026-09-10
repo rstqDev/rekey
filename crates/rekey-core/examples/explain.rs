@@ -44,9 +44,13 @@ fn main() {
         println!(
             "  -> {alt:<3} {conv:<24} src[{}]={:>7}  dst[{}]={:>7}  all-alpha={}  coverage={:.2}",
             from.def.lang,
-            src_score.map(|s| format!("{s:.2}")).unwrap_or("none".into()),
+            src_score
+                .map(|s| format!("{s:.2}"))
+                .unwrap_or("none".into()),
             to.def.lang,
-            dst_score.map(|s| format!("{s:.2}")).unwrap_or("none".into()),
+            dst_score
+                .map(|s| format!("{s:.2}"))
+                .unwrap_or("none".into()),
             conv.chars().all(|c| c.is_alphabetic()),
             to.coverage(&conv),
         );

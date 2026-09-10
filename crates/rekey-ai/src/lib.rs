@@ -80,7 +80,11 @@ impl Question {
 
     /// Cache key. Case-insensitive, since the verdict does not depend on case.
     fn key(&self) -> String {
-        format!("{}|{}", self.typed.to_lowercase(), self.alternative.to_lowercase())
+        format!(
+            "{}|{}",
+            self.typed.to_lowercase(),
+            self.alternative.to_lowercase()
+        )
     }
 }
 
@@ -210,7 +214,11 @@ fn parse_verdict(response: &serde_json::Value) -> Result<Verdict, AiError> {
     // Checked in this order so a reply that mentions both still resolves to the
     // conservative answer unless CONVERT clearly leads.
     match (upper.find("CONVERT"), upper.find("KEEP")) {
-        (Some(c), Some(k)) => Ok(if c < k { Verdict::Convert } else { Verdict::Keep }),
+        (Some(c), Some(k)) => Ok(if c < k {
+            Verdict::Convert
+        } else {
+            Verdict::Keep
+        }),
         (Some(_), None) => Ok(Verdict::Convert),
         (None, Some(_)) => Ok(Verdict::Keep),
         (None, None) => Err(AiError::Unparseable(format!(

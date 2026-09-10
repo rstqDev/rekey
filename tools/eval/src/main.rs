@@ -126,12 +126,7 @@ fn pct((hit, total): (usize, usize)) -> f64 {
 
 /// Words genuinely meant for `target_layout` but typed while `typed_on` was
 /// active. Returns (fixed, attempted).
-fn recall(
-    det: &Detector,
-    words: &[String],
-    target_layout: &str,
-    typed_on: &str,
-) -> (usize, usize) {
+fn recall(det: &Detector, words: &[String], target_layout: &str, typed_on: &str) -> (usize, usize) {
     let mut fixed = 0;
     let mut total = 0;
     for w in words {

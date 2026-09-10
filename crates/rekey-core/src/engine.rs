@@ -263,7 +263,11 @@ mod tests {
         let c = ctx(layout);
         let mut last = Action::None;
         for ch in s.chars() {
-            let ev = if ch == ' ' { special(Key::Space) } else { key(ch) };
+            let ev = if ch == ' ' {
+                special(Key::Space)
+            } else {
+                key(ch)
+            };
             let action = e.on_key(&ev, &c);
             if action != Action::None {
                 last = action;

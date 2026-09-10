@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+
+      # The language models are built from public word lists rather than
+      # committed, so tests that score real words need them present.
+      - name: Fetch corpora
+        shell: bash
+        run: ./tools/fetch_corpora.sh
+
+      - name: Build language models
+        run: cargo run --release -p modelgen -- tools/.cache crates/rekey-core/data/models
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --workspace
+
+      # The published accuracy figures are a claim; make CI able to fail on it.
+      - name: Evaluate detection accuracy
+        if: matrix.os == 'macos-latest'
+        run: cargo run --release -p eval -- tools/.cache crates/rekey-core/data/models 1000
+
+  formatting:
+    name: Formatting
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all --check
+
+  content:
+    name: Social content
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check every queued post fits X's limit
+        run: python3 automation/check_content.py

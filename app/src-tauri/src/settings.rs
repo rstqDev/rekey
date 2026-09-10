@@ -4,7 +4,7 @@ use rekey_core::config::Config;
 use std::path::PathBuf;
 
 /// Settings plus the things that are not part of the detection config.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct Settings {
     pub config: Config,
@@ -12,16 +12,6 @@ pub struct Settings {
     /// config directory; empty unless the user pastes one in.
     pub api_key: String,
     pub launch_at_login: bool,
-}
-
-impl Default for Settings {
-    fn default() -> Settings {
-        Settings {
-            config: Config::default(),
-            api_key: String::new(),
-            launch_at_login: false,
-        }
-    }
 }
 
 /// `~/Library/Application Support/app.rekey.desktop` (macOS) or
@@ -47,7 +37,10 @@ impl Settings {
             Ok(text) => match serde_json::from_str(&text) {
                 Ok(settings) => settings,
                 Err(e) => {
-                    log::warn!("settings at {} are unreadable ({e}); using defaults", path.display());
+                    log::warn!(
+                        "settings at {} are unreadable ({e}); using defaults",
+                        path.display()
+                    );
                     Settings::default()
                 }
             },
@@ -75,7 +68,5 @@ pub fn models_dir(app: &tauri::AppHandle) -> PathBuf {
             return bundled;
         }
     }
-    let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../crates/rekey-core/data/models");
-    dev
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../crates/rekey-core/data/models")
 }

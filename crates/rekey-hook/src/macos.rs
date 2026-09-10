@@ -20,12 +20,12 @@ use core_foundation::dictionary::CFDictionary;
 use core_foundation::runloop::{kCFRunLoopCommonModes, CFRunLoop};
 use core_foundation::string::{CFString, CFStringRef};
 use core_graphics::event::{
-    CallbackResult, CGEvent, CGEventFlags, CGEventTap, CGEventTapLocation, CGEventTapOptions,
-    CGEventTapPlacement, CGEventType, EventField,
+    CGEvent, CGEventFlags, CGEventTap, CGEventTapLocation, CGEventTapOptions, CGEventTapPlacement,
+    CGEventType, CallbackResult, EventField,
 };
+use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
 use core_graphics::sys::CGEventRef;
 use foreign_types::ForeignType;
-use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
 use std::ffi::c_void;
 
 /// Marker written into the `USER_DATA` field of every event Rekey synthesises,
@@ -316,8 +316,7 @@ where
         vec![CGEventType::KeyDown, CGEventType::FlagsChanged],
         move |_proxy, event_type, event| {
             if matches!(event_type, CGEventType::KeyDown) {
-                let synthetic = event
-                    .get_integer_value_field(EventField::EVENT_SOURCE_USER_DATA)
+                let synthetic = event.get_integer_value_field(EventField::EVENT_SOURCE_USER_DATA)
                     == REKEY_SIGNATURE;
                 let keycode =
                     event.get_integer_value_field(EventField::KEYBOARD_EVENT_KEYCODE) as u16;
@@ -383,7 +382,10 @@ mod tests {
     #[test]
     fn unknown_input_sources_are_not_guessed() {
         // Better to do nothing than to assume a layout we do not model.
-        assert_eq!(layout_from_input_source("com.apple.inputmethod.Kotoeri"), None);
+        assert_eq!(
+            layout_from_input_source("com.apple.inputmethod.Kotoeri"),
+            None
+        );
         assert_eq!(layout_from_input_source("com.apple.keylayout.Dvorak"), None);
     }
 

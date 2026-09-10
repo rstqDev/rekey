@@ -98,8 +98,13 @@ fn get_state(state: State<'_, AppState>) -> UiState {
         hook_running: *state.hook_running.lock().expect("hook lock"),
         available_layouts: layout_catalog(),
         models_loaded: {
-            let mut langs: Vec<String> =
-                engine.detector.models.langs().iter().map(|s| s.to_string()).collect();
+            let mut langs: Vec<String> = engine
+                .detector
+                .models
+                .langs()
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
             langs.sort();
             langs
         },
