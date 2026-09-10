@@ -7,142 +7,162 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <header data-tauri-drag-region>
-    <div class="brand" data-tauri-drag-region>
-      <span class="mark" aria-hidden="true">⇄</span>
-      <div data-tauri-drag-region>
-        <h1 data-tauri-drag-region>Rekey</h1>
-        <p class="tagline" data-tauri-drag-region>Fixes text typed on the wrong layout</p>
-      </div>
-    </div>
-    <label class="switch" title="Pause or resume corrections">
-      <input type="checkbox" id="enabled" />
-      <span class="track"><span class="thumb"></span></span>
-    </label>
+  <!-- Draggable title area. macOS hides its own title bar here, so this stands
+       in for it; on Windows the system chrome sits above and this is a header. -->
+  <header class="titlebar" data-tauri-drag-region>
+    <span class="titlebar-title" data-tauri-drag-region>Rekey</span>
   </header>
 
-  <div id="permission" class="notice notice-warn" hidden>
-    <p><strong>Rekey needs Accessibility access</strong> to see what you type and
-      put corrections back.</p>
-    <div class="notice-actions">
-      <button id="grant" class="primary">Grant access</button>
-      <button id="open-settings">Open System Settings</button>
+  <div id="permission" class="banner banner-warn" hidden>
+    <p><strong>Rekey needs Accessibility access</strong> to see what you type
+      and put corrections back.</p>
+    <div class="banner-actions">
+      <button id="grant" class="btn btn-primary">Grant access</button>
+      <button id="open-settings" class="btn">Open System Settings</button>
     </div>
-    <p class="fine">Rekey starts correcting the moment you allow it — no
-      restart needed. This notice disappears on its own.</p>
+    <p class="footnote">Rekey starts correcting the moment you allow it — no
+      restart needed.</p>
   </div>
 
-  <div id="no-models" class="notice notice-error" hidden>
+  <div id="no-models" class="banner banner-error" hidden>
     <p><strong>No language models found.</strong> Corrections are disabled.
       Reinstall Rekey, or run the model build from the repository.</p>
   </div>
 
   <main>
-    <section>
-      <h2>Try it</h2>
-      <div class="try">
+    <section class="group">
+      <div class="row">
+        <div class="row-text">
+          <span class="row-title">Correct as I type</span>
+          <span class="row-detail" id="enabled-detail">Watching for words typed on the wrong layout</span>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="enabled" />
+          <span class="switch-track"><span class="switch-thumb"></span></span>
+        </label>
+      </div>
+    </section>
+
+    <h2 class="group-header">Try it</h2>
+    <section class="group">
+      <div class="row row-column">
         <input
           id="try-input"
           type="text"
+          class="field mono"
           spellcheck="false"
           autocomplete="off"
           placeholder="ghbdtn rfr ltkf" />
-        <div class="arrow" aria-hidden="true">↓</div>
-        <output id="try-output" class="try-output">привет как дела</output>
+        <output id="try-output" class="preview mono">привет как дела</output>
       </div>
-      <p class="fine">Typed with the
-        <select id="try-layout" class="inline-select"></select>
-        layout. Nothing is sent anywhere.</p>
+      <div class="row">
+        <span class="row-title">Typed with</span>
+        <select id="try-layout" class="select"></select>
+      </div>
     </section>
+    <p class="group-footnote">Nothing typed here leaves your machine.</p>
 
-    <section>
-      <h2>Languages you type in</h2>
-      <p class="fine">Rekey compares what you typed against every language you
-        pick here. Pick only the ones you use.</p>
+    <h2 class="group-header">Languages you type in</h2>
+    <section class="group">
       <ul id="layouts" class="layouts"></ul>
     </section>
+    <p class="group-footnote">Rekey compares what you typed against every
+      language selected here. Choosing fewer makes it more certain.</p>
 
-    <section>
-      <h2>How eager should it be?</h2>
-      <div class="segmented" id="sensitivity" role="radiogroup">
-        <button role="radio" data-value="cautious">Cautious</button>
-        <button role="radio" data-value="balanced">Balanced</button>
-        <button role="radio" data-value="eager">Eager</button>
+    <h2 class="group-header">Corrections</h2>
+    <section class="group">
+      <div class="row">
+        <div class="row-text">
+          <span class="row-title">How eager</span>
+          <span class="row-detail" id="sensitivity-hint"></span>
+        </div>
+        <div class="segmented" id="sensitivity" role="radiogroup" aria-label="How eager">
+          <button role="radio" data-value="cautious">Cautious</button>
+          <button role="radio" data-value="balanced">Balanced</button>
+          <button role="radio" data-value="eager">Eager</button>
+        </div>
       </div>
-      <p class="fine" id="sensitivity-hint"></p>
-    </section>
-
-    <section>
-      <h2>Fix the last word by hand</h2>
-      <p class="fine">When Rekey guesses wrong — or stays quiet when it
-        shouldn't — this cycles the last word through every layout you have on.
-        Press it again to keep going.</p>
-      <select id="shortcut" class="wide-select">
-        <option value="tap:option">Tap Option</option>
-        <option value="doubletap:option">Double-tap Option</option>
-        <option value="tap:shift">Tap Shift</option>
-        <option value="doubletap:shift">Double-tap Shift</option>
-        <option value="tap:control">Tap Control</option>
-        <option value="doubletap:control">Double-tap Control</option>
-        <option value="tap:command">Tap Command</option>
-        <option value="doubletap:command">Double-tap Command</option>
-        <option value="off">Off</option>
-      </select>
-      <p class="fine" id="shortcut-hint"></p>
-    </section>
-
-    <section>
-      <h2>Options</h2>
-      <label class="row">
-        <input type="checkbox" id="skip-caps" />
-        <span>
+      <div class="row">
+        <div class="row-text">
+          <span class="row-title">Fix the last word by hand</span>
+          <span class="row-detail" id="shortcut-hint"></span>
+        </div>
+        <select id="shortcut" class="select">
+          <option value="tap:option">Tap Option</option>
+          <option value="doubletap:option">Double-tap Option</option>
+          <option value="tap:shift">Tap Shift</option>
+          <option value="doubletap:shift">Double-tap Shift</option>
+          <option value="tap:control">Tap Control</option>
+          <option value="doubletap:control">Double-tap Control</option>
+          <option value="tap:command">Tap Command</option>
+          <option value="doubletap:command">Double-tap Command</option>
+          <option value="off">Off</option>
+        </select>
+      </div>
+      <div class="row">
+        <div class="row-text">
           <span class="row-title">Leave ALL CAPS alone</span>
-          <span class="fine">Acronyms like HTTP and NASA are usually meant as typed.</span>
-        </span>
-      </label>
-      <label class="row">
-        <input type="checkbox" id="launch" />
-        <span>
-          <span class="row-title">Launch at login</span>
-        </span>
-      </label>
-      <label class="row">
-        <input type="checkbox" id="ai" />
-        <span>
+          <span class="row-detail">Acronyms like HTTP and NASA are usually meant as typed</span>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="skip-caps" />
+          <span class="switch-track"><span class="switch-thumb"></span></span>
+        </label>
+      </div>
+    </section>
+
+    <h2 class="group-header">General</h2>
+    <section class="group">
+      <div class="row">
+        <span class="row-title">Open at login</span>
+        <label class="switch">
+          <input type="checkbox" id="launch" />
+          <span class="switch-track"><span class="switch-thumb"></span></span>
+        </label>
+      </div>
+      <div class="row">
+        <div class="row-text">
           <span class="row-title">Ask Claude about ambiguous words</span>
-          <span class="fine">Off by default. Sends single ambiguous words — never
-            whole sentences — to Anthropic's API and remembers the answer
-            locally. Everything else stays on this machine.</span>
-        </span>
-      </label>
-      <p class="fine" id="ai-status"></p>
-      <div id="ai-key-row" class="key-row" hidden>
+          <span class="row-detail">Sends single words — never whole sentences — to
+            Anthropic's API and remembers the answer locally</span>
+          <span class="row-detail" id="ai-status"></span>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="ai" />
+          <span class="switch-track"><span class="switch-thumb"></span></span>
+        </label>
+      </div>
+      <div class="row row-column" id="ai-key-row" hidden>
         <input
           id="api-key"
           type="password"
+          class="field mono"
           spellcheck="false"
           autocomplete="off"
           placeholder="sk-ant-…" />
       </div>
     </section>
 
-    <section class="compact">
-      <h2>Never correct in</h2>
-      <p class="fine" id="excluded-summary">Password managers, terminals and
-        password fields, where a silent rewrite would do real damage.</p>
+    <h2 class="group-header">Never corrects in</h2>
+    <section class="group">
+      <div class="row">
+        <span class="row-detail" id="excluded-summary">Password managers,
+          terminals and password fields, where a silent rewrite would do real
+          damage.</span>
+      </div>
     </section>
 
     <section id="exceptions-section" hidden>
-      <h2>Words you told it to leave alone</h2>
-      <ul id="exceptions" class="chips"></ul>
+      <h2 class="group-header">Words you told it to leave alone</h2>
+      <div class="group">
+        <div class="row">
+          <ul id="exceptions" class="chips"></ul>
+        </div>
+      </div>
     </section>
-  </main>
 
-  <footer>
-    <span id="stats">No corrections yet</span>
-    <span class="spacer"></span>
-    <span id="version" class="fine"></span>
-  </footer>
+    <p class="colophon"><span id="stats">No corrections yet</span> · <span id="version"></span></p>
+  </main>
 
   <!-- Inert when running inside Tauri; see dev-mock.js. -->
   <script src="dev-mock.js"></script>

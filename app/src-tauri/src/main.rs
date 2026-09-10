@@ -53,6 +53,9 @@ struct UiState {
     available_layouts: Vec<LayoutInfo>,
     models_loaded: Vec<String>,
     version: String,
+    /// `"macos"`, `"windows"`, or whatever the build targets. The settings
+    /// window styles itself to match the platform it is actually running on.
+    platform: String,
 }
 
 #[derive(serde::Serialize)]
@@ -141,6 +144,7 @@ fn get_state(state: State<'_, AppState>) -> UiState {
             langs
         },
         version: env!("CARGO_PKG_VERSION").to_string(),
+        platform: std::env::consts::OS.to_string(),
     }
 }
 

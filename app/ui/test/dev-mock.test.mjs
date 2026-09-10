@@ -23,6 +23,7 @@ function activates({ protocol, hostname, tauriPresent }) {
     window,
     location: { protocol, hostname },
     console: { info() {}, warn() {} },
+    navigator: { userAgent: "test" },
     structuredClone: (v) => JSON.parse(JSON.stringify(v)),
   };
   context.globalThis = context;

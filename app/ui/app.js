@@ -8,21 +8,51 @@
 const bridge = window.__TAURI__;
 const invoke = bridge?.core?.invoke;
 
-/** Why you might pick each trigger. */
-const SHORTCUT_HINTS = {
-  "tap:option":
-    "One tap of Option, alone. Note that Option+Backspace and Option+Arrow " +
-    "are ordinary macOS shortcuts — those still work, and never trigger this.",
-  "doubletap:option":
-    "Two quick taps of Option. Safer if you use Option in chords often.",
-  "tap:shift": "One tap of Shift, alone. Typing a capital letter never counts.",
-  "doubletap:shift": "Two quick taps of Shift.",
-  "tap:control": "One tap of Control, alone.",
-  "doubletap:control": "Two quick taps of Control.",
-  "tap:command": "One tap of Command, alone.",
-  "doubletap:command": "Two quick taps of Command.",
-  off: "No manual shortcut. Rekey only corrects on its own.",
+/** Modifier names differ between platforms; the keys are the same. */
+const MODIFIER_NAMES = {
+  macos: { option: "Option", shift: "Shift", control: "Control", command: "Command" },
+  windows: { option: "Alt", shift: "Shift", control: "Ctrl", command: "Windows key" },
 };
+
+/** Chords that already mean something, so a single tap is a poorer choice. */
+const BUSY_MODIFIER = {
+  macos: {
+    option: "Option+Backspace and Option+Arrow are ordinary macOS shortcuts — " +
+      "those still work, and never trigger this.",
+  },
+  windows: {
+    option: "Alt+Tab and Alt+F4 are ordinary Windows shortcuts — those still " +
+      "work, and never trigger this.",
+  },
+};
+
+/** Describe the selected trigger in the platform's own terms. */
+function shortcutHint(value, platform) {
+  if (!value || value === "off") {
+    return "No manual shortcut. Rekey only corrects on its own.";
+  }
+  const [kind, modifier] = value.split(":");
+  const names = MODIFIER_NAMES[platform] ?? MODIFIER_NAMES.macos;
+  const name = names[modifier] ?? modifier;
+  const busy = BUSY_MODIFIER[platform]?.[modifier];
+
+  if (kind === "doubletap") {
+    return `Two quick taps of ${name}.` +
+      (busy ? " Safer than a single tap if you use it in chords." : "");
+  }
+  return `One tap of ${name}, alone.` + (busy ? ` ${busy}` : "");
+}
+
+/** Relabel the trigger menu for the platform. */
+function renderShortcutOptions(platform) {
+  const names = MODIFIER_NAMES[platform] ?? MODIFIER_NAMES.macos;
+  for (const option of $("shortcut").options) {
+    if (option.value === "off") continue;
+    const [kind, modifier] = option.value.split(":");
+    const name = names[modifier] ?? modifier;
+    option.textContent = kind === "doubletap" ? `Double-tap ${name}` : `Tap ${name}`;
+  }
+}
 
 const SENSITIVITY_HINTS = {
   cautious: "Only acts on overwhelming evidence. Rarely wrong, misses more.",
@@ -59,7 +89,13 @@ async function pollLiveFields() {
 }
 
 function render() {
+  // Style the window for the machine it is running on, not for a guess.
+  document.documentElement.dataset.platform = state.platform;
+
   $("enabled").checked = state.enabled;
+  $("enabled-detail").textContent = state.enabled
+    ? "Watching for words typed on the wrong layout"
+    : "Paused — nothing is being corrected";
   $("permission").hidden = state.has_permission && state.hook_running;
   $("no-models").hidden = state.models_loaded.length > 0;
   $("version").textContent = `v${state.version}`;
@@ -68,8 +104,13 @@ function render() {
   renderLayouts();
   renderSensitivity();
 
+  renderShortcutOptions(state.platform);
   $("shortcut").value = state.shortcut;
-  $("shortcut-hint").textContent = SHORTCUT_HINTS[state.shortcut] ?? "";
+  $("shortcut-hint").textContent = shortcutHint(state.shortcut, state.platform);
+
+  // Only macOS gates keyboard access behind a permission, and only macOS has
+  // a System Settings pane to send people to.
+  $("open-settings").hidden = state.platform !== "macos";
 
   $("skip-caps").checked = state.skip_all_caps;
   $("launch").checked = state.launch_at_login;
@@ -264,7 +305,7 @@ if (!invoke) {
   // Never fall back to plausible-looking placeholder data: an app that reads
   // your keyboard has to be honest about not working.
   document.body.innerHTML =
-    '<div class="notice notice-error" style="margin:20px">' +
+    '<div class="banner banner-error" style="margin:20px">' +
     "<p><strong>Rekey could not reach its backend.</strong> " +
     "The settings window cannot show or change anything. " +
     "Please reinstall Rekey and report this.</p></div>";

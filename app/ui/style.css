@@ -1,219 +1,451 @@
 /* Rekey settings window.
-   Deliberately plain: this is a utility people open twice and then forget.
-   Everything is sized so the whole window fits without scrolling on first run. */
+ *
+ * One structure, two skins. The layout is the grouped-row shape both platforms
+ * use for settings — a label on the left, its control on the right, rows
+ * stacked inside a rounded container — and everything that differs between
+ * macOS and Windows is expressed as tokens under [data-platform].
+ *
+ * The platform is reported by the Rust side and stamped on <html>, so the
+ * window matches the machine it is actually running on rather than guessing
+ * from the user agent.
+ *
+ * Sizes follow the desktop guidance: 13pt body, nothing below 10pt. The
+ * previous design had 9.5px badges, which is under that floor.
+ */
+
+/* -- shared tokens --------------------------------------------------------- */
 
 :root {
-  --bg: #f6f6f7;
-  --panel: #ffffff;
-  --text: #1c1c1e;
-  --muted: #6e6e73;
-  --line: #e2e2e5;
-  --accent: #4f46e5;
-  --accent-soft: #eeecfd;
-  --warn-bg: #fff5e6;
-  --warn-line: #f0c987;
-  --error-bg: #fdeded;
-  --error-line: #efb4b4;
-  --radius: 9px;
+  --radius-group: 10px;
+  --radius-control: 6px;
+  --row-min-height: 38px;
+  --row-pad-x: 12px;
+  --row-pad-y: 9px;
+  --gutter: 20px;
+  --group-gap: 18px;
+
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue",
+    sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  --size-body: 13px;
+  --size-detail: 11px;
+  --size-header: 11px;
+
+  /* Light appearance. Every colour is defined here and only overridden. */
+  --bg: #ececee;
+  --group-bg: #ffffff;
+  --group-border: rgba(0, 0, 0, 0.08);
+  --separator: rgba(0, 0, 0, 0.08);
+  --text: #1d1d1f;
+  --text-secondary: #6e6e73;
+  --accent: #0a68e1;
+  --accent-text: #ffffff;
+  --control-bg: #ffffff;
+  --control-border: rgba(0, 0, 0, 0.18);
+  --track-off: #d8d8dc;
+  --field-bg: #ffffff;
+  --preview-bg: #eef2fb;
+  --warn-bg: #fff6e0;
+  --warn-border: #e8c37a;
+  --error-bg: #ffecec;
+  --error-border: #e5a9a9;
+  --shadow-control: 0 1px 1px rgba(0, 0, 0, 0.06);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #1c1c1e;
-    --panel: #262629;
-    --text: #f2f2f4;
-    --muted: #9a9aa1;
-    --line: #38383c;
-    --accent: #8b83f7;
-    --accent-soft: #2c2a4a;
-    --warn-bg: #3a2f1c;
-    --warn-line: #7a6231;
-    --error-bg: #3a2222;
-    --error-line: #7a3f3f;
+    --group-bg: #2c2c2e;
+    --group-border: rgba(255, 255, 255, 0.09);
+    --separator: rgba(255, 255, 255, 0.11);
+    --text: #f5f5f7;
+    --text-secondary: #98989e;
+    --accent: #3d8bfd;
+    --accent-text: #ffffff;
+    --control-bg: #3a3a3c;
+    --control-border: rgba(255, 255, 255, 0.16);
+    --track-off: #4b4b4f;
+    --field-bg: #1c1c1e;
+    --preview-bg: #2a3350;
+    --warn-bg: #3a2f1a;
+    --warn-border: #77602c;
+    --error-bg: #3a2020;
+    --error-border: #7a3c3c;
+    --shadow-control: none;
   }
 }
 
-* { box-sizing: border-box; }
+/* -- Windows 11 -----------------------------------------------------------
+ * Fluent: Segoe UI Variable, squarer corners, a lighter card against a Mica
+ * ground, and the system accent blue. Controls sit on a subtle border rather
+ * than a shadow, and the toggle is a pill with a travelling dot.
+ */
+
+[data-platform="windows"] {
+  --radius-group: 7px;
+  --radius-control: 4px;
+  --row-min-height: 44px;
+  --row-pad-x: 14px;
+  --row-pad-y: 10px;
+  --font-ui: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI",
+    system-ui, sans-serif;
+  --size-body: 14px;
+  --size-detail: 12px;
+  --size-header: 14px;
+
+  --bg: #f3f3f3;
+  --group-bg: #fbfbfb;
+  --group-border: rgba(0, 0, 0, 0.06);
+  --separator: rgba(0, 0, 0, 0.06);
+  --text: #1b1b1b;
+  --text-secondary: #5d5d5d;
+  --accent: #005fb8;
+  --control-bg: #fdfdfd;
+  --control-border: rgba(0, 0, 0, 0.16);
+  --track-off: #8a8a8a;
+  --field-bg: #fdfdfd;
+  --preview-bg: #eef4fc;
+  --shadow-control: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  [data-platform="windows"] {
+    --bg: #202020;
+    --group-bg: #2b2b2b;
+    --group-border: rgba(255, 255, 255, 0.07);
+    --separator: rgba(255, 255, 255, 0.07);
+    --text: #ffffff;
+    --text-secondary: #cfcfcf;
+    --accent: #60cdff;
+    --accent-text: #003754;
+    --control-bg: #323232;
+    --control-border: rgba(255, 255, 255, 0.1);
+    --track-off: #9a9a9a;
+    --field-bg: #2d2d2d;
+    --preview-bg: #23344a;
+  }
+}
+
+/* -- base ------------------------------------------------------------------ */
+
+* {
+  box-sizing: border-box;
+}
+
+/* `display` on a class outranks the user agent's [hidden] rule, so anything
+   the code hides by setting `.hidden = true` would otherwise stay visible —
+   which is how the API key field turned up with the assist switched off. */
+[hidden] {
+  display: none !important;
+}
 
 body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  font-family: var(--font-ui);
+  font-size: var(--size-body);
+  line-height: 1.4;
   -webkit-font-smoothing: antialiased;
   user-select: none;
 }
 
-/* -- header --------------------------------------------------------------- */
+.mono {
+  font-family: var(--font-mono);
+}
 
-header {
+/* -- title bar ------------------------------------------------------------- */
+
+.titlebar {
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: var(--size-body);
+}
+
+/* Windows draws its own title bar above the content, so this becomes a
+   left-aligned header rather than a stand-in for one. */
+[data-platform="windows"] .titlebar {
+  justify-content: flex-start;
+  padding: 0 var(--gutter);
+  height: 46px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/* -- layout ---------------------------------------------------------------- */
+
+main {
+  padding: 0 var(--gutter) var(--gutter);
+}
+
+.group {
+  background: var(--group-bg);
+  border: 1px solid var(--group-border);
+  border-radius: var(--radius-group);
+  overflow: hidden;
+}
+
+.group-header {
+  margin: var(--group-gap) 2px 6px;
+  font-size: var(--size-header);
+  font-weight: 600;
+  color: var(--text-secondary);
+  letter-spacing: 0;
+}
+
+/* Windows settings headers are full-size and sit in the text colour. */
+[data-platform="windows"] .group-header {
+  color: var(--text);
+  margin: 22px 2px 8px;
+}
+
+.group-footnote,
+.footnote {
+  margin: 6px 4px 0;
+  font-size: var(--size-detail);
+  color: var(--text-secondary);
+}
+
+.row {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 22px 18px 12px;
+  min-height: var(--row-min-height);
+  padding: var(--row-pad-y) var(--row-pad-x);
 }
 
-.brand { display: flex; align-items: center; gap: 11px; }
+/* Separators are inset from the leading edge, as in both systems' lists. */
+.row + .row {
+  border-top: 1px solid var(--separator);
+}
 
-.mark {
-  width: 30px; height: 30px;
-  display: grid; place-items: center;
-  border-radius: 8px;
-  background: var(--accent);
-  color: #fff;
-  font-size: 17px;
+.row-column {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+
+.row-title {
+  flex: 1;
+}
+
+.row-detail {
+  font-size: var(--size-detail);
+  color: var(--text-secondary);
+}
+
+.row-detail:empty {
+  display: none;
+}
+
+/* -- switch ---------------------------------------------------------------- */
+
+.switch {
   flex: none;
+  cursor: pointer;
+  display: inline-flex;
 }
 
-h1 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
-.tagline { margin: 1px 0 0; font-size: 11.5px; color: var(--muted); }
-
-/* -- toggle switch -------------------------------------------------------- */
-
-.switch { margin-left: auto; cursor: pointer; }
-.switch input { position: absolute; opacity: 0; width: 0; height: 0; }
-
-.track {
-  display: block;
-  width: 40px; height: 24px;
-  border-radius: 12px;
-  background: var(--line);
-  transition: background 0.16s ease;
+.switch input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
 }
 
-.thumb {
+.switch-track {
+  width: 38px;
+  height: 22px;
+  border-radius: 11px;
+  background: var(--track-off);
+  transition: background 0.15s ease;
   display: block;
-  width: 20px; height: 20px;
+}
+
+.switch-thumb {
+  display: block;
+  width: 18px;
+  height: 18px;
   margin: 2px;
   border-radius: 50%;
   background: #fff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.28);
-  transition: transform 0.16s ease;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  transition: transform 0.15s ease;
 }
 
-.switch input:checked + .track { background: var(--accent); }
-.switch input:checked + .track .thumb { transform: translateX(16px); }
-.switch input:focus-visible + .track { outline: 2px solid var(--accent); outline-offset: 2px; }
-
-/* -- layout --------------------------------------------------------------- */
-
-main { padding: 0 18px 2px; }
-
-section {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 11px 13px;
-  margin-bottom: 9px;
+.switch input:checked + .switch-track {
+  background: var(--accent);
 }
 
-h2 {
-  margin: 0 0 8px;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--muted);
+.switch input:checked + .switch-track .switch-thumb {
+  transform: translateX(16px);
 }
 
-.fine { margin: 6px 0 0; font-size: 11.5px; color: var(--muted); }
-
-/* -- notices -------------------------------------------------------------- */
-
-.notice {
-  margin: 0 18px 10px;
-  padding: 12px 14px;
-  border-radius: var(--radius);
-  border: 1px solid;
-  font-size: 12.5px;
+.switch input:focus-visible + .switch-track {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
-.notice p { margin: 0; }
-.notice-warn { background: var(--warn-bg); border-color: var(--warn-line); }
-.notice-error { background: var(--error-bg); border-color: var(--error-line); }
-.notice-actions { display: flex; gap: 8px; margin-top: 10px; }
+/* Fluent's toggle is a bordered pill whose dot grows when it turns on. */
+[data-platform="windows"] .switch-track {
+  width: 40px;
+  height: 20px;
+  border-radius: 10px;
+  background: transparent;
+  border: 1px solid var(--track-off);
+}
 
-button {
+[data-platform="windows"] .switch-thumb {
+  width: 12px;
+  height: 12px;
+  margin: 3px;
+  background: var(--text);
+  box-shadow: none;
+  transition: transform 0.15s ease, width 0.15s ease, background 0.15s ease;
+}
+
+[data-platform="windows"] .switch input:checked + .switch-track {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+[data-platform="windows"] .switch input:checked + .switch-track .switch-thumb {
+  background: var(--accent-text);
+  transform: translateX(20px);
+}
+
+/* -- select ---------------------------------------------------------------- */
+
+.select {
+  flex: none;
+  max-width: 190px;
   font: inherit;
-  padding: 5px 12px;
-  border-radius: 7px;
-  border: 1px solid var(--line);
-  background: var(--panel);
+  font-size: var(--size-body);
   color: var(--text);
+  background: var(--control-bg);
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-control);
+  padding: 4px 8px;
+  box-shadow: var(--shadow-control);
+}
+
+.select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* -- segmented control ----------------------------------------------------- */
+
+.segmented {
+  flex: none;
+  display: grid;
+  grid-auto-flow: column;
+  gap: 2px;
+  padding: 2px;
+  background: var(--track-off);
+  border-radius: var(--radius-control);
+}
+
+.segmented button {
+  font: inherit;
+  font-size: var(--size-detail);
+  border: none;
+  background: transparent;
+  color: var(--text);
+  border-radius: calc(var(--radius-control) - 1px);
+  padding: 3px 10px;
   cursor: pointer;
 }
 
-button:hover { border-color: var(--accent); }
-button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-button.primary:hover { filter: brightness(1.08); }
-
-/* -- try it --------------------------------------------------------------- */
-
-.try { display: grid; gap: 5px; justify-items: stretch; }
-
-.try input,
-.try-output {
-  width: 100%;
-  padding: 9px 11px;
-  border-radius: 7px;
-  font-size: 14px;
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+.segmented button[aria-checked="true"] {
+  background: var(--group-bg);
+  font-weight: 600;
+  box-shadow: var(--shadow-control);
 }
 
-.try input {
-  border: 1px solid var(--line);
-  background: var(--bg);
+[data-platform="windows"] .segmented {
+  background: transparent;
+  gap: 4px;
+  padding: 0;
+}
+
+[data-platform="windows"] .segmented button {
+  border: 1px solid var(--control-border);
+  background: var(--control-bg);
+  padding: 4px 11px;
+}
+
+[data-platform="windows"] .segmented button[aria-checked="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+/* -- fields and preview ---------------------------------------------------- */
+
+.field {
+  width: 100%;
+  font-size: var(--size-body);
   color: var(--text);
+  background: var(--field-bg);
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-control);
+  padding: 7px 9px;
   user-select: text;
 }
 
-.try input:focus { outline: none; border-color: var(--accent); }
+.field:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
 
-.try-output {
-  border: 1px solid transparent;
-  background: var(--accent-soft);
-  color: var(--text);
-  min-height: 36px;
+.preview {
+  min-height: 34px;
+  padding: 7px 9px;
+  border-radius: var(--radius-control);
+  background: var(--preview-bg);
   user-select: text;
   overflow-wrap: anywhere;
 }
 
-.try-output.unchanged { background: var(--bg); color: var(--muted); }
-.arrow { text-align: center; color: var(--muted); font-size: 11px; line-height: 1; }
-
-.inline-select {
-  font: inherit;
-  color: var(--text);
-  background: var(--bg);
-  border: 1px solid var(--line);
-  border-radius: 5px;
-  padding: 1px 4px;
+.preview.unchanged {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px dashed var(--separator);
 }
 
-/* -- languages ------------------------------------------------------------ */
+/* -- languages ------------------------------------------------------------- */
 
-/* Two columns: ten languages in one column made the window twice as tall as
-   it needed to be. */
 .layouts {
   list-style: none;
   margin: 0;
-  padding: 0;
+  padding: 4px var(--row-pad-x) 8px;
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 0 10px;
+  gap: 0 12px;
 }
 
-.layouts li label {
+.layouts label {
   display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 3px 4px;
+  gap: 8px;
+  padding: 5px 0;
   cursor: pointer;
-  border-radius: 5px;
-  font-size: 12.5px;
+  min-height: 26px;
 }
 
-.layouts li label:hover { background: var(--bg); }
 .layouts .name {
   flex: 1;
   overflow: hidden;
@@ -221,103 +453,116 @@ button.primary:hover { filter: brightness(1.08); }
   white-space: nowrap;
 }
 
+input[type="checkbox"] {
+  flex: none;
+  accent-color: var(--accent);
+  width: 14px;
+  height: 14px;
+  margin: 0;
+}
+
+/* "limited" marker. Text, not just colour, so it survives colour blindness
+   and greyscale — and at 11px it clears the 10pt floor the old badge missed. */
 .badge {
-  font-size: 9.5px;
-  padding: 0 5px;
-  border-radius: 20px;
-  background: var(--bg);
-  border: 1px solid var(--line);
-  color: var(--muted);
+  font-size: var(--size-detail);
+  color: var(--text-secondary);
+  flex: none;
 }
 
-/* -- segmented control ---------------------------------------------------- */
+/* -- chips ----------------------------------------------------------------- */
 
-.segmented {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 3px;
-  padding: 3px;
-  background: var(--bg);
-  border-radius: 8px;
-}
-
-.segmented button {
-  border: none;
-  background: transparent;
-  border-radius: 6px;
-  padding: 5px 0;
-  color: var(--muted);
-}
-
-.segmented button[aria-checked="true"] {
-  background: var(--panel);
-  color: var(--text);
-  font-weight: 600;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
-}
-
-/* -- option rows ---------------------------------------------------------- */
-
-.row {
+.chips {
+  list-style: none;
+  margin: 0;
+  padding: 0;
   display: flex;
-  gap: 9px;
-  align-items: flex-start;
-  padding: 6px 2px;
-  cursor: pointer;
+  flex-wrap: wrap;
+  gap: 5px;
 }
-
-.row + .row { border-top: 1px solid var(--line); }
-.row-title { display: block; }
-.row .fine { margin-top: 2px; }
-input[type="checkbox"] { margin: 2px 0 0; accent-color: var(--accent); flex: none; }
-
-.wide-select {
-  width: 100%;
-  font: inherit;
-  padding: 7px 10px;
-  border-radius: 7px;
-  border: 1px solid var(--line);
-  background: var(--bg);
-  color: var(--text);
-}
-
-.key-row { margin-top: 8px; }
-
-.key-row input {
-  width: 100%;
-  padding: 7px 10px;
-  border-radius: 7px;
-  border: 1px solid var(--line);
-  background: var(--bg);
-  color: var(--text);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12px;
-  user-select: text;
-}
-
-/* -- chips ---------------------------------------------------------------- */
-
-.chips { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 5px; }
 
 .chips li {
-  font-size: 11px;
+  font-family: var(--font-mono);
+  font-size: var(--size-detail);
   padding: 2px 8px;
   border-radius: 20px;
   background: var(--bg);
-  border: 1px solid var(--line);
-  color: var(--muted);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  border: 1px solid var(--separator);
+  color: var(--text-secondary);
 }
 
-/* -- footer --------------------------------------------------------------- */
+/* -- banners --------------------------------------------------------------- */
 
-footer {
+.banner {
+  margin: 0 var(--gutter) 12px;
+  padding: 12px 14px;
+  border-radius: var(--radius-group);
+  border: 1px solid;
+  font-size: var(--size-body);
+}
+
+.banner p {
+  margin: 0;
+}
+
+.banner-warn {
+  background: var(--warn-bg);
+  border-color: var(--warn-border);
+}
+
+.banner-error {
+  background: var(--error-bg);
+  border-color: var(--error-border);
+}
+
+.banner-actions {
   display: flex;
-  align-items: center;
   gap: 8px;
-  padding: 8px 18px 16px;
-  font-size: 11.5px;
-  color: var(--muted);
+  margin-top: 10px;
 }
 
-.spacer { flex: 1; }
+.btn {
+  font: inherit;
+  font-size: var(--size-body);
+  padding: 5px 13px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--control-border);
+  background: var(--control-bg);
+  color: var(--text);
+  cursor: pointer;
+  box-shadow: var(--shadow-control);
+}
+
+.btn:hover {
+  border-color: var(--accent);
+}
+
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* -- colophon -------------------------------------------------------------- */
+
+/* Deliberately not a fixed footer: the desktop guidance warns against putting
+   anything people need at the very bottom of a window, since windows are often
+   dragged partly off-screen. This is incidental information, so it simply ends
+   the page. */
+.colophon {
+  margin: var(--group-gap) 2px 0;
+  font-size: var(--size-detail);
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .switch-track,
+  .switch-thumb {
+    transition: none;
+  }
+}
