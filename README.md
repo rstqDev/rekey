@@ -93,6 +93,29 @@ Rekey **never swallows a keystroke**. The character you typed always lands
 first; corrections are applied afterwards as ordinary backspaces and text.
 That is why it works in every app without integrating with any of them.
 
+## Fixing a word by hand
+
+Rekey's guess is only a guess. When it gets one wrong — or stays quiet when it
+shouldn't — the shortcut cycles the last word through every layout you have
+enabled, and keeps going each time you press it. Cycling back to exactly what
+you typed is taken as being overruled: that word goes on the exception list and
+is left alone from then on.
+
+The trigger is configurable in the settings window, because the right choice
+depends on how you use your modifiers:
+
+| Trigger | Worth choosing when |
+|---|---|
+| Tap Option *(default)* | You want one keystroke and rarely use Option in chords |
+| Double-tap Option | You use Option+Backspace or Option+Arrow constantly |
+| Tap / double-tap Shift, Control, Command | Any of those sit better under your hands |
+| Off | You would rather Rekey only ever acted on its own |
+
+Only modifiers are offered. They produce no text on their own, so overloading
+one never steals a keystroke from the app underneath — and the shortcut has to
+work everywhere, which rules out anything an application might already claim.
+A modifier held as part of a chord never counts: ⌥⌘ is a shortcut, not a tap.
+
 ## Privacy
 
 Everything runs locally. No telemetry, no analytics, no network calls.
@@ -103,6 +126,13 @@ Anthropic API key, single ambiguous words — never whole sentences, never
 anything from an excluded app or a password field — are sent to Anthropic's API
 in the background, and the answer is cached locally so each word is sent at
 most once. Leave it off and Rekey never opens a socket.
+
+It is deliberately a *learner*, not a filter. A network round trip is three
+orders of magnitude slower than the local decision, so it never sits in the
+keystroke path: the local engine always decides in the moment, ambiguous words
+are asked about in the background, and the answer makes the *next* occurrence
+instant. Words the local models settle confidently — the overwhelming majority
+— are never sent at all.
 
 ### The log file
 

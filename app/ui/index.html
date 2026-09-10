@@ -73,6 +73,25 @@
     </section>
 
     <section>
+      <h2>Fix the last word by hand</h2>
+      <p class="fine">When Rekey guesses wrong — or stays quiet when it
+        shouldn't — this cycles the last word through every layout you have on.
+        Press it again to keep going.</p>
+      <select id="shortcut" class="wide-select">
+        <option value="tap:option">Tap Option</option>
+        <option value="doubletap:option">Double-tap Option</option>
+        <option value="tap:shift">Tap Shift</option>
+        <option value="doubletap:shift">Double-tap Shift</option>
+        <option value="tap:control">Tap Control</option>
+        <option value="doubletap:control">Double-tap Control</option>
+        <option value="tap:command">Tap Command</option>
+        <option value="doubletap:command">Double-tap Command</option>
+        <option value="off">Off</option>
+      </select>
+      <p class="fine" id="shortcut-hint"></p>
+    </section>
+
+    <section>
       <h2>Options</h2>
       <label class="row">
         <input type="checkbox" id="skip-caps" />
@@ -96,6 +115,7 @@
             locally. Everything else stays on this machine.</span>
         </span>
       </label>
+      <p class="fine" id="ai-status"></p>
       <div id="ai-key-row" class="key-row" hidden>
         <input
           id="api-key"

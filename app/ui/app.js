@@ -8,6 +8,22 @@
 const bridge = window.__TAURI__;
 const invoke = bridge?.core?.invoke;
 
+/** Why you might pick each trigger. */
+const SHORTCUT_HINTS = {
+  "tap:option":
+    "One tap of Option, alone. Note that Option+Backspace and Option+Arrow " +
+    "are ordinary macOS shortcuts — those still work, and never trigger this.",
+  "doubletap:option":
+    "Two quick taps of Option. Safer if you use Option in chords often.",
+  "tap:shift": "One tap of Shift, alone. Typing a capital letter never counts.",
+  "doubletap:shift": "Two quick taps of Shift.",
+  "tap:control": "One tap of Control, alone.",
+  "doubletap:control": "Two quick taps of Control.",
+  "tap:command": "One tap of Command, alone.",
+  "doubletap:command": "Two quick taps of Command.",
+  off: "No manual shortcut. Rekey only corrects on its own.",
+};
+
 const SENSITIVITY_HINTS = {
   cautious: "Only acts on overwhelming evidence. Rarely wrong, misses more.",
   balanced: "Acts when the other reading is clearly a real word. Recommended.",
@@ -52,12 +68,26 @@ function render() {
   renderLayouts();
   renderSensitivity();
 
+  $("shortcut").value = state.shortcut;
+  $("shortcut-hint").textContent = SHORTCUT_HINTS[state.shortcut] ?? "";
+
   $("skip-caps").checked = state.skip_all_caps;
   $("launch").checked = state.launch_at_login;
   $("ai").checked = state.ai_assist;
   $("ai-key-row").hidden = !state.ai_assist;
   // Never echo a stored key back into the DOM; show that one exists instead.
   $("api-key").placeholder = state.has_api_key ? "key saved — type to replace" : "sk-ant-…";
+  // Say plainly when the assist is on but cannot work, rather than looking
+  // enabled and silently doing nothing.
+  $("ai-status").textContent = !state.ai_assist
+    ? ""
+    : !state.assist_active
+      ? "Needs an API key before it can do anything."
+      : state.assist_learned > 0
+        ? `${state.assist_learned} ambiguous ${
+            state.assist_learned === 1 ? "word" : "words"
+          } settled so far.`
+        : "Waiting for a word the local models can't settle.";
 
   $("excluded-summary").title = state.excluded_apps.join("\n");
   $("exceptions-section").hidden = state.exceptions.length === 0;
@@ -158,10 +188,18 @@ async function save(changes = {}, extras = {}) {
     excluded_apps: state.excluded_apps,
     skip_all_caps: state.skip_all_caps,
     ai_assist: state.ai_assist,
+    shortcut: parseShortcut(state.shortcut),
     ...changes,
   };
   await invoke("set_config", { config, ...extras });
   await refresh();
+}
+
+/** Turn "doubletap:option" into the tagged shape the engine expects. */
+function parseShortcut(value) {
+  if (!value || value === "off") return { kind: "off" };
+  const [kind, modifier] = value.split(":");
+  return { kind, modifier };
 }
 
 let previewTimer = null;
@@ -194,6 +232,10 @@ $("api-key").addEventListener("change", (e) => {
   e.target.value = "";
   save({}, { apiKey: key });
 });
+
+$("shortcut").addEventListener("change", (e) =>
+  save({ shortcut: parseShortcut(e.target.value) })
+);
 
 $("sensitivity").addEventListener("click", (e) => {
   const button = e.target.closest("button");

@@ -4,10 +4,11 @@
 
 //! Rekey — fixes text typed on the wrong keyboard layout.
 
+mod assist;
 mod service;
 mod settings;
 
-use rekey_core::config::{Config, Sensitivity};
+use rekey_core::config::{Config, Modifier, Sensitivity, Shortcut};
 use rekey_core::engine::Engine;
 use rekey_core::model::Models;
 use service::SharedEngine;
@@ -39,6 +40,12 @@ struct UiState {
     launch_at_login: bool,
     excluded_apps: Vec<String>,
     exceptions: Vec<String>,
+    /// The manual shortcut, as `"off"`, `"tap:option"` or `"doubletap:shift"`.
+    shortcut: String,
+    /// True when the assist is switched on *and* usable.
+    assist_active: bool,
+    /// How many ambiguous words the assist has settled.
+    assist_learned: usize,
     corrections: u64,
     undos: u64,
     has_permission: bool,
@@ -57,6 +64,27 @@ struct LayoutInfo {
     /// less signal to work with. The UI says so rather than quietly
     /// underperforming.
     limited: bool,
+}
+
+/// The shortcut as the settings window spells it, e.g. `"doubletap:option"`.
+///
+/// A flat string keeps the picker a single `<select>`; the tagged enum is
+/// rebuilt on the way back in.
+fn shortcut_to_string(shortcut: Shortcut) -> String {
+    match shortcut {
+        Shortcut::Off => "off".into(),
+        Shortcut::Tap { modifier } => format!("tap:{}", modifier_key(modifier)),
+        Shortcut::DoubleTap { modifier } => format!("doubletap:{}", modifier_key(modifier)),
+    }
+}
+
+fn modifier_key(modifier: Modifier) -> &'static str {
+    match modifier {
+        Modifier::Option => "option",
+        Modifier::Shift => "shift",
+        Modifier::Control => "control",
+        Modifier::Command => "command",
+    }
 }
 
 fn layout_catalog() -> Vec<LayoutInfo> {
@@ -93,6 +121,9 @@ fn get_state(state: State<'_, AppState>) -> UiState {
         launch_at_login: settings.launch_at_login,
         excluded_apps: config.excluded_apps.clone(),
         exceptions: config.exceptions.clone(),
+        shortcut: shortcut_to_string(config.shortcut),
+        assist_active: engine.has_assist(),
+        assist_learned: engine.assist_learned(),
         corrections: stats.corrections,
         undos: stats.undos,
         has_permission: rekey_hook::platform::has_permission(),
@@ -123,20 +154,44 @@ fn set_config(
     api_key: Option<String>,
     launch_at_login: Option<bool>,
 ) -> Result<(), String> {
-    {
-        let mut engine = state.engine.lock().map_err(|e| e.to_string())?;
-        engine.set_config(config.clone());
-    }
     let mut settings = state.settings.lock().map_err(|e| e.to_string())?;
-    settings.config = config;
+    settings.config = config.clone();
     if let Some(key) = api_key {
         settings.api_key = key;
+    }
+    {
+        let mut engine = state.engine.lock().map_err(|e| e.to_string())?;
+        engine.set_config(config);
+        // The assist is rebuilt rather than toggled, so switching it off drops
+        // the worker and its cache instead of leaving them idling.
+        attach_assist(&mut engine, &settings);
     }
     if let Some(launch) = launch_at_login {
         settings.launch_at_login = launch;
         apply_launch_at_login(&app, launch);
     }
     settings.save().map_err(|e| e.to_string())
+}
+
+/// Attach or remove the Claude assist to match the current settings.
+///
+/// Requires both the setting *and* a key: an assist that can only fail is
+/// worse than none, because it looks enabled while doing nothing.
+fn attach_assist(engine: &mut Engine, settings: &Settings) {
+    if !settings.config.ai_assist {
+        engine.set_assist(None);
+        return;
+    }
+    match assist::ClaudeAssist::start(&settings.api_key) {
+        Some(assist) => {
+            log::info!("Claude assist enabled for ambiguous words");
+            engine.set_assist(Some(Arc::new(assist)));
+        }
+        None => {
+            log::warn!("Claude assist is on but no API key is set; leaving it off");
+            engine.set_assist(None);
+        }
+    }
 }
 
 fn apply_launch_at_login(app: &AppHandle, enabled: bool) {
@@ -359,8 +414,9 @@ fn main() {
                 );
             }
 
-            let engine: SharedEngine =
-                Arc::new(Mutex::new(Engine::new(models, settings.config.clone())));
+            let mut engine_inner = Engine::new(models, settings.config.clone());
+            attach_assist(&mut engine_inner, &settings);
+            let engine: SharedEngine = Arc::new(Mutex::new(engine_inner));
 
             // The hook waits for Accessibility rather than failing, so this
             // only errors if the platform layer itself is unavailable.

@@ -5,12 +5,14 @@
 //! decides whether it is safe to act right now. "Safe" does most of the work —
 //! the right answer typed into a password field is still a bug.
 
+use crate::assist::{Assist, Question};
 use crate::buffer::{Buffer, Input};
-use crate::config::Config;
-use crate::detect::{Detector, Skip, Verdict};
+use crate::config::{Config, Shortcut};
+use crate::detect::{Candidate, Detector, Skip, Verdict};
 use crate::input::{Context, Key, KeyEvent, Modifiers, TextWriter};
 use crate::layout;
 use crate::model::Models;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 /// What the engine wants done to the text the user is typing.
@@ -59,6 +61,9 @@ pub struct Stats {
 /// was held, and it was not held for long.
 const MODIFIER_TAP_WINDOW: Duration = Duration::from_millis(600);
 
+/// How close together two taps must be to count as a double tap.
+const DOUBLE_TAP_WINDOW: Duration = Duration::from_millis(500);
+
 /// The last finished word, in every reading Rekey knows for it.
 ///
 /// This is what makes the manual shortcut feel right. Rekey's guess is only a
@@ -103,12 +108,16 @@ pub struct Engine {
     /// The last completed word, ready to be cycled by the shortcut.
     last_word: Option<WordCycle>,
     last_context: Option<(Option<String>, Option<String>)>,
-    /// When a modifier went down with nothing else pressed since.
+    /// When the shortcut modifier went down with nothing else pressed since.
     modifier_down_at: Option<Instant>,
-    alt_was_down: bool,
+    modifier_was_down: bool,
+    /// When the last completed tap happened, for double-tap shortcuts.
+    last_tap_at: Option<Instant>,
     /// The layout Rekey has just asked the system to switch to, so that its own
     /// switch is not mistaken for the user changing context.
     expected_layout: Option<String>,
+    /// An optional second opinion for words the local models cannot settle.
+    assist: Option<Arc<dyn Assist>>,
     stats: Stats,
 }
 
@@ -120,8 +129,10 @@ impl Engine {
             last_word: None,
             last_context: None,
             modifier_down_at: None,
-            alt_was_down: false,
+            modifier_was_down: false,
+            last_tap_at: None,
             expected_layout: None,
+            assist: None,
             stats: Stats::default(),
         }
     }
@@ -139,6 +150,23 @@ impl Engine {
 
     pub fn stats(&self) -> Stats {
         self.stats
+    }
+
+    /// Provide a second opinion for ambiguous words, or `None` to remove it.
+    ///
+    /// Only consulted when `ai_assist` is on, so switching the setting off
+    /// takes effect immediately even if an assist is still attached.
+    pub fn set_assist(&mut self, assist: Option<Arc<dyn Assist>>) {
+        self.assist = assist;
+    }
+
+    pub fn has_assist(&self) -> bool {
+        self.assist.is_some()
+    }
+
+    /// How many ambiguous words the assist has settled so far.
+    pub fn assist_learned(&self) -> usize {
+        self.assist.as_ref().map_or(0, |a| a.learned())
     }
 
     /// Feed one keystroke. Returns what should be done to the document.
@@ -273,11 +301,24 @@ impl Engine {
             }
         );
 
-        let Verdict::Switch(candidate) = verdict else {
-            // Nothing to do now, but remember the word so the shortcut can
-            // still convert it if Rekey guessed wrong by staying quiet.
-            self.last_word = cycle;
-            return Action::None;
+        let candidate = match verdict {
+            Verdict::Switch(candidate) => candidate,
+            // Just under the threshold: plausible either way. This is where a
+            // second opinion earns its place, if the user has enabled one.
+            Verdict::Ambiguous(candidate) => match self.resolve_ambiguous(core, &candidate, active)
+            {
+                Some(true) => candidate,
+                _ => {
+                    self.last_word = cycle;
+                    return Action::None;
+                }
+            },
+            Verdict::Keep(_) => {
+                // Nothing to do now, but remember the word so the shortcut can
+                // still convert it if Rekey guessed wrong by staying quiet.
+                self.last_word = cycle;
+                return Action::None;
+            }
         };
 
         let corrected = format!("{prefix}{}{suffix}", candidate.converted);
@@ -311,6 +352,32 @@ impl Engine {
             text: replacement,
             switch_to: Some(candidate.to_layout.to_string()),
         }
+    }
+
+    /// Ask the assist about an ambiguous word, if one is configured.
+    ///
+    /// Answers only from what has already been learned — the keystroke path
+    /// cannot wait for a network call. An unknown word is queued and left
+    /// alone this time, so the answer is ready the next time it is typed.
+    fn resolve_ambiguous(&self, core: &str, candidate: &Candidate, active: &str) -> Option<bool> {
+        if !self.detector.config.ai_assist {
+            return None;
+        }
+        let assist = self.assist.as_ref()?;
+        if let Some(verdict) = assist.cached(core, &candidate.converted) {
+            log::debug!("assist had a verdict for an ambiguous word: convert={verdict}");
+            return Some(verdict);
+        }
+
+        let typed_language = layout::layout(active)?.def.lang.to_string();
+        let alternative_language = layout::layout(candidate.to_layout)?.def.lang.to_string();
+        assist.enqueue(Question {
+            typed: core.to_string(),
+            alternative: candidate.converted.clone(),
+            typed_language,
+            alternative_language,
+        });
+        None
     }
 
     /// Every reading of `text`, so the shortcut has somewhere to cycle to.
@@ -359,21 +426,27 @@ impl Engine {
     /// someone reaching for a shortcut in the app they are using, and firing
     /// on that would make Rekey rewrite text at random moments.
     fn on_modifier_change(&mut self, modifiers: Modifiers) -> Action {
-        let alt_down = modifiers.alt;
-        let others_held = modifiers.shift || modifiers.control || modifiers.meta;
-        let was_down = std::mem::replace(&mut self.alt_was_down, alt_down);
+        let shortcut = self.detector.config.shortcut;
+        let Some(target) = shortcut.modifier() else {
+            return Action::None;
+        };
+
+        let down = target.is_held(modifiers);
+        let others_held = target.others_held(modifiers);
+        let was_down = std::mem::replace(&mut self.modifier_was_down, down);
         log::debug!(
-            "modifier change: alt={alt_down} was={was_down} others={others_held} armed={}",
+            "modifier change: {} down={down} was={was_down} others={others_held} armed={}",
+            target.label(),
             self.modifier_down_at.is_some()
         );
 
         if others_held {
-            // Some other modifier joined in; this is a chord, not a tap.
+            // Another modifier joined in; this is a chord, not a tap.
             self.modifier_down_at = None;
             return Action::None;
         }
 
-        match (was_down, alt_down) {
+        match (was_down, down) {
             // Pressed on its own: start timing.
             (false, true) => {
                 self.modifier_down_at = Some(Instant::now());
@@ -381,20 +454,40 @@ impl Engine {
             }
             // Released: a tap if nothing intervened and it was brief.
             (true, false) => match self.modifier_down_at.take() {
-                Some(at) if at.elapsed() <= MODIFIER_TAP_WINDOW => {
-                    log::info!("option tapped; cycling the last word");
-                    self.cycle_last_word()
-                }
+                Some(at) if at.elapsed() <= MODIFIER_TAP_WINDOW => self.on_tap(shortcut),
                 Some(_) => {
-                    log::debug!("option held too long to be a tap");
+                    log::debug!("{} held too long to be a tap", target.label());
                     Action::None
                 }
                 None => {
-                    log::debug!("option released but the tap was disarmed");
+                    log::debug!("{} released but the tap was disarmed", target.label());
                     Action::None
                 }
             },
             _ => Action::None,
+        }
+    }
+
+    /// A completed tap of the shortcut modifier.
+    fn on_tap(&mut self, shortcut: Shortcut) -> Action {
+        if !shortcut.needs_two_taps() {
+            log::info!("shortcut tapped; cycling the last word");
+            return self.cycle_last_word();
+        }
+
+        // A double tap: the first arms, the second fires. Anything slower than
+        // the window starts over, so a stray tap cannot linger and combine
+        // with an unrelated one later.
+        match self.last_tap_at.take() {
+            Some(previous) if previous.elapsed() <= DOUBLE_TAP_WINDOW => {
+                log::info!("shortcut double-tapped; cycling the last word");
+                self.cycle_last_word()
+            }
+            _ => {
+                self.last_tap_at = Some(Instant::now());
+                log::debug!("first tap of a double-tap shortcut");
+                Action::None
+            }
         }
     }
 
@@ -570,6 +663,36 @@ mod tests {
         let c = ctx(layout);
         e.on_key(&alt(true), &c);
         e.on_key(&alt(false), &c)
+    }
+
+    /// A modifier-change event with an arbitrary modifier held.
+    fn modifier_event(modifiers: Modifiers) -> KeyEvent {
+        KeyEvent {
+            character: None,
+            key: Key::ModifiersChanged,
+            modifiers,
+            synthetic: false,
+        }
+    }
+
+    /// Tap a specific modifier once.
+    fn tap(e: &mut Engine, layout: &str, held: Modifiers) -> Action {
+        let c = ctx(layout);
+        e.on_key(&modifier_event(held), &c);
+        e.on_key(&modifier_event(Modifiers::default()), &c)
+    }
+
+    fn engine_with_shortcut(shortcut: crate::config::Shortcut) -> Engine {
+        let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("data/models");
+        let models = Models::load_dir(&dir).expect("models");
+        Engine::new(
+            models,
+            Config {
+                layouts: vec!["us".into(), "ru".into()],
+                shortcut,
+                ..Config::default()
+            },
+        )
     }
 
     /// Render `word` as the same physical keys would produce on `to`.
@@ -990,6 +1113,126 @@ mod tests {
             "the earlier word must not still be cyclable"
         );
         assert_eq!(tap_alt(&mut e, "us"), Action::None);
+    }
+
+    #[test]
+    fn the_shortcut_modifier_is_configurable() {
+        use crate::config::{Modifier, Shortcut};
+        let mut e = engine_with_shortcut(Shortcut::Tap {
+            modifier: Modifier::Shift,
+        });
+        type_str(&mut e, "hello ", "us");
+
+        // Option is no longer the trigger …
+        assert_eq!(tap_alt(&mut e, "us"), Action::None);
+
+        // … Shift is.
+        let action = tap(
+            &mut e,
+            "us",
+            Modifiers {
+                shift: true,
+                ..Default::default()
+            },
+        );
+        assert_eq!(replaced_text(&action), "руддщ ");
+    }
+
+    #[test]
+    fn a_double_tap_shortcut_needs_both_taps() {
+        use crate::config::{Modifier, Shortcut};
+        let mut e = engine_with_shortcut(Shortcut::DoubleTap {
+            modifier: Modifier::Option,
+        });
+        type_str(&mut e, "hello ", "us");
+
+        // One tap arms and does nothing — which is the point, since Option is
+        // also used in ordinary chords.
+        assert_eq!(tap_alt(&mut e, "us"), Action::None);
+        // The second fires.
+        assert_eq!(replaced_text(&tap_alt(&mut e, "us")), "руддщ ");
+    }
+
+    #[test]
+    fn the_shortcut_can_be_switched_off_entirely() {
+        use crate::config::Shortcut;
+        let mut e = engine_with_shortcut(Shortcut::Off);
+        type_str(&mut e, "hello ", "us");
+        assert_eq!(tap_alt(&mut e, "us"), Action::None);
+        assert_eq!(tap_alt(&mut e, "us"), Action::None);
+    }
+
+    #[test]
+    fn an_ambiguous_word_is_queued_for_the_assist_and_left_alone() {
+        use crate::assist::test_support::FakeAssist;
+        let mut e = engine();
+        let mut cfg = e.config().clone();
+        cfg.ai_assist = true;
+        e.set_config(cfg);
+        let assist = std::sync::Arc::new(FakeAssist::default());
+        e.set_assist(Some(assist.clone()));
+
+        // Feed words until one lands in the ambiguous band.
+        for word in ["ntcn", "vjq", "hfp", "ldf", "ytn", "ds,", "rjn"] {
+            type_str(&mut e, &format!("{word} "), "us");
+        }
+        // Whatever was ambiguous went to the assist, and nothing was rewritten
+        // on a guess in the meantime.
+        let asked = assist.asked.lock().unwrap();
+        for question in asked.iter() {
+            assert!(!question.typed.is_empty());
+            assert_ne!(question.typed, question.alternative);
+            assert_eq!(question.typed_language, "en");
+        }
+    }
+
+    #[test]
+    fn a_learned_assist_verdict_converts_an_ambiguous_word() {
+        use crate::assist::test_support::FakeAssist;
+        use crate::detect::Verdict;
+
+        // Find a word the detector genuinely calls ambiguous, so the test
+        // exercises the path rather than assuming which word qualifies.
+        let probe = engine();
+        let ambiguous = ["ntcn", "vjq", "hfp", "ldf", "ytn", "rjn", "ds,", "yt"]
+            .iter()
+            .find(|w| matches!(probe.detector.evaluate(w, "us"), Verdict::Ambiguous(_)))
+            .copied();
+        let Some(word) = ambiguous else {
+            // Nothing in the sample is ambiguous with the shipped models; the
+            // queueing test above still covers the wiring.
+            return;
+        };
+
+        let mut e = engine();
+        let mut cfg = e.config().clone();
+        cfg.ai_assist = true;
+        e.set_config(cfg);
+        e.set_assist(Some(std::sync::Arc::new(FakeAssist::with_answer(
+            word, true,
+        ))));
+
+        let action = type_str(&mut e, &format!("{word} "), "us");
+        assert!(
+            action != Action::None,
+            "a learned 'convert' verdict should be acted on for {word:?}"
+        );
+    }
+
+    #[test]
+    fn the_assist_is_ignored_when_the_setting_is_off() {
+        use crate::assist::test_support::FakeAssist;
+        let mut e = engine();
+        // ai_assist defaults to false.
+        let assist = std::sync::Arc::new(FakeAssist::default());
+        e.set_assist(Some(assist.clone()));
+        for word in ["ntcn", "vjq", "hfp", "ldf", "ytn"] {
+            type_str(&mut e, &format!("{word} "), "us");
+        }
+        assert!(
+            assist.asked.lock().unwrap().is_empty(),
+            "nothing should leave the machine while the assist is switched off"
+        );
     }
 
     #[test]

@@ -271,6 +271,16 @@ button.primary:hover { filter: brightness(1.08); }
 .row .fine { margin-top: 2px; }
 input[type="checkbox"] { margin: 2px 0 0; accent-color: var(--accent); flex: none; }
 
+.wide-select {
+  width: 100%;
+  font: inherit;
+  padding: 7px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--text);
+}
+
 .key-row { margin-top: 8px; }
 
 .key-row input {

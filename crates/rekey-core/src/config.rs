@@ -52,6 +52,82 @@ impl Sensitivity {
     }
 }
 
+/// A modifier key that can be used as Rekey's manual shortcut.
+///
+/// Only modifiers are offered. They produce no text on their own, so they can
+/// be overloaded without stealing a keystroke from the app underneath — and
+/// the shortcut has to work in every application, which rules out anything an
+/// app might already claim.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Modifier {
+    Option,
+    Shift,
+    Control,
+    Command,
+}
+
+impl Modifier {
+    /// Is this modifier currently held?
+    pub fn is_held(self, modifiers: crate::input::Modifiers) -> bool {
+        match self {
+            Modifier::Option => modifiers.alt,
+            Modifier::Shift => modifiers.shift,
+            Modifier::Control => modifiers.control,
+            Modifier::Command => modifiers.meta,
+        }
+    }
+
+    /// Is any modifier *other* than this one held?
+    pub fn others_held(self, modifiers: crate::input::Modifiers) -> bool {
+        let all = [
+            (Modifier::Option, modifiers.alt),
+            (Modifier::Shift, modifiers.shift),
+            (Modifier::Control, modifiers.control),
+            (Modifier::Command, modifiers.meta),
+        ];
+        all.iter().any(|(m, held)| *held && *m != self)
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Modifier::Option => "Option",
+            Modifier::Shift => "Shift",
+            Modifier::Control => "Control",
+            Modifier::Command => "Command",
+        }
+    }
+}
+
+/// How the manual "cycle the last word" shortcut is triggered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum Shortcut {
+    /// No manual shortcut at all.
+    Off,
+    /// Press and release the modifier with nothing in between.
+    Tap { modifier: Modifier },
+    /// Two taps in quick succession.
+    ///
+    /// Worth choosing for a modifier used in ordinary chords: a single tap of
+    /// Option sits awkwardly beside Option+Backspace and Option+Arrow, which
+    /// many people use constantly.
+    DoubleTap { modifier: Modifier },
+}
+
+impl Shortcut {
+    pub fn modifier(self) -> Option<Modifier> {
+        match self {
+            Shortcut::Off => None,
+            Shortcut::Tap { modifier } | Shortcut::DoubleTap { modifier } => Some(modifier),
+        }
+    }
+
+    pub fn needs_two_taps(self) -> bool {
+        matches!(self, Shortcut::DoubleTap { .. })
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
@@ -73,6 +149,8 @@ pub struct Config {
     pub skip_all_caps: bool,
     /// Ask the optional AI assist about words the local model finds ambiguous.
     pub ai_assist: bool,
+    /// How to trigger cycling the last word by hand.
+    pub shortcut: Shortcut,
 }
 
 impl Default for Config {
@@ -87,6 +165,9 @@ impl Default for Config {
             excluded_apps: default_excluded_apps(),
             skip_all_caps: true,
             ai_assist: false,
+            shortcut: Shortcut::Tap {
+                modifier: Modifier::Option,
+            },
         }
     }
 }
