@@ -120,9 +120,7 @@ pub fn spawn(engine: SharedEngine) -> Result<Arc<AtomicBool>, rekey_hook::HookEr
 /// Injection is deliberately off the tap callback: it keeps the callback fast
 /// enough that macOS will not disable the tap, and it lets the keystroke that
 /// triggered the correction land before the correction is typed.
-fn spawn_injector(
-    injector: Arc<dyn TextWriter>,
-) -> Result<Sender<Action>, rekey_hook::HookError> {
+fn spawn_injector(injector: Arc<dyn TextWriter>) -> Result<Sender<Action>, rekey_hook::HookError> {
     let (tx, rx) = mpsc::channel::<Action>();
     std::thread::Builder::new()
         .name("rekey-inject".into())

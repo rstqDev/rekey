@@ -27,9 +27,7 @@ fn main() {
                 .unwrap_or("unknown");
             println!("  active layout     {layout}  ({name})");
         }
-        None => println!(
-            "  active layout     unrecognised — Rekey does nothing rather than guess"
-        ),
+        None => println!("  active layout     unrecognised — Rekey does nothing rather than guess"),
     }
 
     match platform::frontmost_app() {
