@@ -7,7 +7,8 @@ use rekey_hook::platform;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use tauri::AppHandle;
 
 /// How long a sampled OS context stays fresh.
 ///
@@ -32,26 +33,41 @@ const REPLACE_DELAY: Duration = Duration::from_millis(25);
 /// setting, and the check is a cheap in-process call.
 const PERMISSION_POLL: Duration = Duration::from_secs(1);
 
-struct ContextCache {
-    value: Context,
-    sampled_at: Instant,
-}
+/// The most recently sampled OS context, shared with the hook thread.
+///
+/// The hook thread must never sample this itself. macOS Text Input Services
+/// and AppKit are main-thread-only: calling `TISGetInputSourceProperty` from
+/// the event tap thread trips `dispatch_assert_queue` and kills the process
+/// with SIGILL on the first keystroke. The sampling therefore happens on the
+/// main thread and the result is published here for the hook to read.
+type SharedContext = Arc<Mutex<Context>>;
 
-impl ContextCache {
-    fn new() -> ContextCache {
-        ContextCache {
-            value: platform::current_context(),
-            sampled_at: Instant::now(),
-        }
-    }
-
-    fn get(&mut self) -> &Context {
-        if self.sampled_at.elapsed() >= CONTEXT_TTL {
-            self.value = platform::current_context();
-            self.sampled_at = Instant::now();
-        }
-        &self.value
-    }
+/// Poll the OS for the frontmost app, active layout and secure-input state,
+/// on the main thread, and publish the result for the hook thread.
+///
+/// Sampling per keystroke would be an IPC round trip per character, which is
+/// far too expensive at typing speed; [`CONTEXT_TTL`] is short enough to notice
+/// an app or layout change well within one word.
+fn spawn_context_sampler(app: &AppHandle, context: SharedContext) {
+    let handle = app.clone();
+    std::thread::Builder::new()
+        .name("rekey-context".into())
+        .spawn(move || loop {
+            let slot = context.clone();
+            // Hop to the main thread to do the actual OS calls.
+            let posted = handle.run_on_main_thread(move || {
+                let sampled = platform::current_context();
+                if let Ok(mut current) = slot.lock() {
+                    *current = sampled;
+                }
+            });
+            if posted.is_err() {
+                // The app is shutting down.
+                break;
+            }
+            std::thread::sleep(CONTEXT_TTL);
+        })
+        .expect("spawn context sampler");
 }
 
 /// Shared handle to the running engine, used by the UI and the tray.
@@ -67,9 +83,15 @@ pub type SharedEngine = Arc<Mutex<Engine>>;
 /// Waiting rather than failing matters: the alternative is telling the user to
 /// quit and reopen the app after granting permission, which is the single most
 /// confusing moment in installing a tool like this.
-pub fn spawn(engine: SharedEngine) -> Result<Arc<AtomicBool>, rekey_hook::HookError> {
+pub fn spawn(
+    app: &AppHandle,
+    engine: SharedEngine,
+) -> Result<Arc<AtomicBool>, rekey_hook::HookError> {
     let running = Arc::new(AtomicBool::new(false));
     let flag = running.clone();
+
+    let context: SharedContext = Arc::new(Mutex::new(Context::default()));
+    spawn_context_sampler(app, context.clone());
 
     let injector: Arc<dyn TextWriter> = Arc::new(new_injector()?);
     let replacements = spawn_injector(injector)?;
@@ -85,10 +107,13 @@ pub fn spawn(engine: SharedEngine) -> Result<Arc<AtomicBool>, rekey_hook::HookEr
                 log::info!("Accessibility granted; starting the keyboard hook");
             }
 
-            let mut cache = ContextCache::new();
             flag.store(true, Ordering::Relaxed);
             let result = platform::run(move |event| {
-                let ctx = cache.get().clone();
+                // Read the published sample; never call into the OS here.
+                let ctx = match context.lock() {
+                    Ok(current) => current.clone(),
+                    Err(poisoned) => poisoned.into_inner().clone(),
+                };
                 let action = match engine.lock() {
                     Ok(mut engine) => engine.on_key(&event, &ctx),
                     Err(poisoned) => {

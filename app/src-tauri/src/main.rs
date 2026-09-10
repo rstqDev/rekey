@@ -310,7 +310,7 @@ fn main() {
 
             // The hook waits for Accessibility rather than failing, so this
             // only errors if the platform layer itself is unavailable.
-            let hook_running = match service::spawn(engine.clone()) {
+            let hook_running = match service::spawn(&handle, engine.clone()) {
                 Ok(flag) => flag,
                 Err(e) => {
                     log::warn!("keyboard hook unavailable: {e}");

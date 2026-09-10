@@ -133,6 +133,13 @@ pub fn layout_from_input_source(id: &str) -> Option<&'static str> {
 }
 
 /// The Rekey layout id for the keyboard the user is currently typing on.
+///
+/// # Must be called on the main thread
+///
+/// Text Input Services asserts the dispatch queue internally. Calling this
+/// from any other thread — the event tap callback in particular — aborts the
+/// process with SIGILL inside `dispatch_assert_queue`, on the very first
+/// keystroke. Sample it on the main thread and share the result.
 pub fn current_layout() -> Option<String> {
     unsafe {
         let source = TISCopyCurrentKeyboardLayoutInputSource();
@@ -152,6 +159,11 @@ pub fn current_layout() -> Option<String> {
 }
 
 /// Bundle identifier of the frontmost application.
+///
+/// # Must be called on the main thread
+///
+/// `NSWorkspace` is AppKit, with the same main-thread requirement as
+/// [`current_layout`].
 pub fn frontmost_app() -> Option<String> {
     use objc2_app_kit::NSWorkspace;
     let workspace = NSWorkspace::sharedWorkspace();
@@ -164,6 +176,12 @@ pub fn secure_input_active() -> bool {
     unsafe { IsSecureEventInputEnabled() }
 }
 
+/// Sample everything the engine needs to know about the current moment.
+///
+/// # Must be called on the main thread
+///
+/// See [`current_layout`]. The app samples this on the main thread on a timer
+/// and publishes the result for the hook thread to read.
 pub fn current_context() -> Context {
     Context {
         app: frontmost_app(),
@@ -281,13 +299,17 @@ fn classify(keycode: u16, character: Option<char>) -> Key {
         53 => Key::Escape,
         // Arrows, and the Home/End/PageUp/PageDown cluster.
         123..=126 | 115 | 116 | 119 | 121 => Key::Navigation,
-        _ => {
-            if character.is_some_and(|c| !c.is_control()) {
-                Key::Character
-            } else {
-                Key::Other
-            }
-        }
+        // Fall back to what the key actually produced. Not every space arrives
+        // as keycode 49: input methods, remapped layouts and synthetic input
+        // can deliver whitespace on other keys, and a word boundary Rekey does
+        // not recognise is a word it never evaluates.
+        _ => match character {
+            Some(' ') => Key::Space,
+            Some('\t') => Key::Tab,
+            Some('\r') | Some('\n') => Key::Enter,
+            Some(c) if !c.is_control() => Key::Character,
+            _ => Key::Other,
+        },
     }
 }
 
@@ -395,6 +417,16 @@ mod tests {
         assert_eq!(classify(49, Some(' ')), Key::Space);
         assert_eq!(classify(123, None), Key::Navigation);
         assert_eq!(classify(0, Some('a')), Key::Character);
+    }
+
+    #[test]
+    fn whitespace_ends_a_word_whatever_key_produced_it() {
+        // A space that does not arrive as keycode 49 must still end the word,
+        // or the word is never evaluated and nothing is ever corrected.
+        assert_eq!(classify(0, Some(' ')), Key::Space);
+        assert_eq!(classify(0, Some('\t')), Key::Tab);
+        assert_eq!(classify(0, Some('\n')), Key::Enter);
+        assert_eq!(classify(0, Some('\r')), Key::Enter);
     }
 
     #[test]
