@@ -18,7 +18,11 @@ tauri-build = { version = "2", features = [] }
 rekey-core = { workspace = true }
 rekey-hook = { workspace = true }
 rekey-ai = { workspace = true }
-tauri = { version = "2", features = ["tray-icon", "image-png"] }
+# macos-private-api is what allows a transparent window, which is in turn what
+# lets the system's vibrancy material show behind the content. It rules out the
+# Mac App Store — which Rekey cannot ship to anyway, since App Store sandboxing
+# forbids the keyboard access the whole app depends on.
+tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api"] }
 tauri-plugin-autostart = "2"
 tauri-plugin-opener = "2"
 serde = { workspace = true }

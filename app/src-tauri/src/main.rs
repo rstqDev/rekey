@@ -26,6 +26,9 @@ struct AppState {
     /// True once the keyboard hook is actually installed. It flips on by
     /// itself when the user grants Accessibility, with no relaunch.
     hook_running: Arc<AtomicBool>,
+    /// Whether the window material was applied, so the UI knows whether it can
+    /// let the background show through.
+    vibrancy: Mutex<bool>,
 }
 
 /// A snapshot for the settings window.
@@ -46,6 +49,8 @@ struct UiState {
     assist_active: bool,
     /// How many ambiguous words the assist has settled.
     assist_learned: usize,
+    /// True when the window is showing a real system material behind it.
+    vibrancy: bool,
     corrections: u64,
     undos: u64,
     has_permission: bool,
@@ -127,6 +132,7 @@ fn get_state(state: State<'_, AppState>) -> UiState {
         shortcut: shortcut_to_string(config.shortcut),
         assist_active: engine.has_assist(),
         assist_learned: engine.assist_learned(),
+        vibrancy: *state.vibrancy.lock().expect("vibrancy lock"),
         corrections: stats.corrections,
         undos: stats.undos,
         has_permission: rekey_hook::platform::has_permission(),
@@ -261,6 +267,41 @@ struct PreviewResult {
 fn undo(state: State<'_, AppState>) {
     let mut engine = state.engine.lock().expect("engine lock");
     let _ = engine.undo();
+}
+
+/// Give the window the system's own background material.
+///
+/// macOS gets the sidebar vibrancy used throughout System Settings, which
+/// picks up whatever is behind the window; Windows 11 gets Mica. Both are real
+/// system materials rather than a CSS approximation, which is the difference
+/// between looking native and looking like a web page.
+///
+/// Returns whether it actually took effect. Mica needs Windows 11, and a
+/// compositor can refuse either — so the stylesheet only drops its opaque
+/// background when this succeeds, rather than leaving a see-through window.
+fn apply_window_material(window: &tauri::WebviewWindow) -> bool {
+    use tauri::window::{Effect, EffectState, EffectsBuilder};
+
+    #[cfg(target_os = "macos")]
+    let candidates = [Effect::Sidebar, Effect::UnderWindowBackground];
+    #[cfg(target_os = "windows")]
+    let candidates = [Effect::Mica, Effect::Acrylic];
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let candidates: [Effect; 0] = [];
+
+    for effect in candidates {
+        let effects = EffectsBuilder::new()
+            .effect(effect)
+            .state(EffectState::FollowsWindowActiveState)
+            .radius(10.0)
+            .build();
+        if window.set_effects(effects).is_ok() {
+            log::info!("window material: {effect:?}");
+            return true;
+        }
+    }
+    log::info!("no window material available; using a solid background");
+    false
 }
 
 fn show_settings(app: &AppHandle) {
@@ -432,6 +473,11 @@ fn main() {
                 }
             };
 
+            let vibrancy = match handle.get_webview_window("settings") {
+                Some(window) => apply_window_material(&window),
+                None => false,
+            };
+
             build_tray(&handle, engine.clone())?;
 
             let started = hook_running.load(Ordering::Relaxed);
@@ -439,6 +485,7 @@ fn main() {
                 engine,
                 settings: Mutex::new(settings),
                 hook_running,
+                vibrancy: Mutex::new(vibrancy),
             });
 
             // First run, or permission still missing: show the window so the

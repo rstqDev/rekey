@@ -126,6 +126,41 @@
   }
 }
 
+/* -- window material -------------------------------------------------------
+ * Applied only when the Rust side confirms the system actually gave us one.
+ * Making the window ground transparent without a material behind it would
+ * leave a see-through window, so this is opt-in on success rather than assumed.
+ *
+ * The cards stay close to opaque on purpose. The material behind them already
+ * blurs and desaturates whatever is on the desktop, but it does not guarantee
+ * a contrast ratio — and body text needs 4.5:1 whatever happens to be behind
+ * the window. Letting the material read through the gaps between groups gives
+ * the depth without putting text on an unknown background.
+ */
+
+[data-vibrancy="on"] {
+  --bg: transparent;
+  --group-bg: rgba(255, 255, 255, 0.86);
+  --group-border: rgba(0, 0, 0, 0.06);
+}
+
+@media (prefers-color-scheme: dark) {
+  [data-vibrancy="on"] {
+    --group-bg: rgba(58, 58, 60, 0.78);
+    --group-border: rgba(255, 255, 255, 0.08);
+  }
+}
+
+[data-vibrancy="on"][data-platform="windows"] {
+  --group-bg: rgba(252, 252, 252, 0.82);
+}
+
+@media (prefers-color-scheme: dark) {
+  [data-vibrancy="on"][data-platform="windows"] {
+    --group-bg: rgba(48, 48, 48, 0.78);
+  }
+}
+
 /* -- base ------------------------------------------------------------------ */
 
 * {
@@ -141,6 +176,7 @@
 
 body {
   margin: 0;
+  /* Transparent under a material, so the window itself is what shows. */
   background: var(--bg);
   color: var(--text);
   font-family: var(--font-ui);

@@ -91,6 +91,9 @@ async function pollLiveFields() {
 function render() {
   // Style the window for the machine it is running on, not for a guess.
   document.documentElement.dataset.platform = state.platform;
+  // Only let the background show through once the system has confirmed a
+  // material is actually behind the window.
+  document.documentElement.dataset.vibrancy = state.vibrancy ? "on" : "off";
 
   $("enabled").checked = state.enabled;
   $("enabled-detail").textContent = state.enabled

@@ -64,6 +64,7 @@ if (!window.__TAURI__ && isLocalDevServer()) {
     shortcut: "tap:option",
     assist_active: false,
     assist_learned: 0,
+    vibrancy: true,
     corrections: 1284,
     undos: 3,
     has_permission: true,

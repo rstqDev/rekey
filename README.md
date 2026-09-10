@@ -151,6 +151,14 @@ logging.
 
 Download the latest build from [Releases](../../releases).
 
+Rekey uses the system's own background material — sidebar vibrancy on macOS,
+Mica on Windows 11 — rather than approximating one in CSS. On macOS that needs
+a transparent window, which needs Tauri's `macos-private-api` feature. That
+rules out the Mac App Store, which Rekey cannot ship to anyway: App Store
+sandboxing forbids the keyboard access the whole app depends on. Where the
+system declines to provide a material (Windows 10 has no Mica), the window
+falls back to a solid background rather than turning see-through.
+
 **macOS** — open the `.dmg`, drag Rekey to Applications, launch it, and grant
 **Accessibility** access when asked (System Settings → Privacy & Security →
 Accessibility). Quit and reopen once you have. Rekey cannot see your keyboard
