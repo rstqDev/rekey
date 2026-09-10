@@ -236,7 +236,14 @@ async function save(changes = {}, extras = {}) {
     ...changes,
   };
   await invoke("set_config", { config, ...extras });
-  await refresh();
+  await // Scroll edge effect: separate the title bar once content passes beneath it.
+document.addEventListener(
+  "scroll",
+  () => document.body.classList.toggle("scrolled", window.scrollY > 2),
+  { passive: true }
+);
+
+refresh();
 }
 
 /** Turn "doubletap:option" into the tagged shape the engine expects. */
@@ -313,5 +320,12 @@ if (!invoke) {
     "The settings window cannot show or change anything. " +
     "Please reinstall Rekey and report this.</p></div>";
 } else {
-  refresh();
+  // Scroll edge effect: separate the title bar once content passes beneath it.
+document.addEventListener(
+  "scroll",
+  () => document.body.classList.toggle("scrolled", window.scrollY > 2),
+  { passive: true }
+);
+
+refresh();
 }

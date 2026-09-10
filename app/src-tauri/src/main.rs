@@ -290,10 +290,12 @@ fn apply_window_material(window: &tauri::WebviewWindow) -> bool {
     let candidates: [Effect; 0] = [];
 
     for effect in candidates {
+        // No radius of our own: the material fills the window and macOS clips
+        // it to the window shape. Rounding it separately leaves the corners
+        // slightly out of step with the frame the system draws.
         let effects = EffectsBuilder::new()
             .effect(effect)
             .state(EffectState::FollowsWindowActiveState)
-            .radius(10.0)
             .build();
         if window.set_effects(effects).is_ok() {
             log::info!("window material: {effect:?}");

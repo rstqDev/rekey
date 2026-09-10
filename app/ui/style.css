@@ -16,8 +16,14 @@
 /* -- shared tokens --------------------------------------------------------- */
 
 :root {
-  --radius-group: 10px;
-  --radius-control: 6px;
+  /* Generous, concentric radii, matching the current macOS look. An inner
+     radius is the outer one minus the padding between them, so nested corners
+     stay parallel instead of drifting apart. */
+  --radius-group: 12px;
+  --radius-control: 8px;
+  /* Height of the overlaid title bar. The traffic lights are drawn by the
+     system on top of the web content, so the content has to start below them. */
+  --titlebar-height: 44px;
   --row-min-height: 38px;
   --row-pad-x: 12px;
   --row-pad-y: 9px;
@@ -82,8 +88,9 @@
  */
 
 [data-platform="windows"] {
-  --radius-group: 7px;
+  --radius-group: 8px;
   --radius-control: 4px;
+  --titlebar-height: 46px;
   --row-min-height: 44px;
   --row-pad-x: 14px;
   --row-pad-y: 10px;
@@ -192,13 +199,44 @@ body {
 
 /* -- title bar ------------------------------------------------------------- */
 
+/* The functional layer: it floats above the content, and the content scrolls
+   underneath it. Sticky rather than fixed so it participates in layout. */
 .titlebar {
-  height: 38px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  height: var(--titlebar-height);
   display: flex;
   align-items: center;
   justify-content: center;
   font-weight: 600;
   font-size: var(--size-body);
+  /* Dragging is handled by Tauri's own data-tauri-drag-region attribute on
+     this element; -webkit-app-region is a Chromium extension and does nothing
+     in the WebKit view Tauri uses on macOS. */
+}
+
+/* A scroll edge effect: while content sits under the bar, blur and separate it
+   so the title stays legible over whatever is passing beneath. */
+.titlebar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  border-bottom: 1px solid var(--separator);
+  opacity: 0;
+  transition: opacity 0.18s ease;
+}
+
+body.scrolled .titlebar::after {
+  opacity: 1;
+}
+
+/* Let clicks fall through to the drag region behind the title text. */
+.titlebar-title {
+  pointer-events: none;
 }
 
 /* Windows draws its own title bar above the content, so this becomes a
@@ -206,7 +244,6 @@ body {
 [data-platform="windows"] .titlebar {
   justify-content: flex-start;
   padding: 0 var(--gutter);
-  height: 46px;
   font-size: 15px;
   font-weight: 600;
 }
@@ -598,7 +635,8 @@ input[type="checkbox"] {
 
 @media (prefers-reduced-motion: reduce) {
   .switch-track,
-  .switch-thumb {
+  .switch-thumb,
+  .titlebar::after {
     transition: none;
   }
 }
