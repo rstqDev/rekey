@@ -279,14 +279,66 @@ impl MacInjector {
     }
 }
 
-/// Virtual keycode for Delete (backspace) on macOS.
+/// Virtual keycodes macOS uses for the keys the layout tables do not cover.
 const VK_DELETE: u16 = 51;
+const VK_SPACE: u16 = 49;
+const VK_TAB: u16 = 48;
+const VK_RETURN: u16 = 36;
+
+/// macOS virtual key codes for each of the 47 printable keys, in the same
+/// physical order `rekey_core::layout` uses.
+///
+/// These are positions, not characters: key code 0 is the key labelled `a` on
+/// a US keyboard, `ф` on a Russian one. That is exactly why replaying them
+/// works — the active layout decides what they produce.
+const KEYCODES: [u16; rekey_core::layout::KEY_COUNT] = [
+    // ` 1 2 3 4 5 6 7 8 9 0 - =
+    50, 18, 19, 20, 21, 23, 22, 26, 28, 25, 29, 27, 24, // q w e r t y u i o p [ ] \
+    12, 13, 14, 15, 17, 16, 32, 34, 31, 35, 33, 30, 42, // a s d f g h j k l ; '
+    0, 1, 2, 3, 5, 4, 38, 40, 37, 41, 39, // z x c v b n m , . /
+    6, 7, 8, 9, 11, 45, 46, 43, 47, 44,
+];
+
+impl MacInjector {
+    /// Post one physical key press, with shift if the layout needs it.
+    fn tap_key_with_shift(&self, keycode: u16, shift: bool) {
+        for down in [true, false] {
+            let Ok(event) = CGEvent::new_keyboard_event(self.source.clone(), keycode, down) else {
+                return;
+            };
+            event.set_integer_value_field(EventField::EVENT_SOURCE_USER_DATA, REKEY_SIGNATURE);
+            event.set_flags(if shift {
+                CGEventFlags::CGEventFlagShift
+            } else {
+                CGEventFlags::empty()
+            });
+            event.post(CGEventTapLocation::HID);
+        }
+    }
+}
 
 impl Injector for MacInjector {
     fn backspace(&self, count: usize) {
         for _ in 0..count {
             self.tap_key(VK_DELETE);
         }
+    }
+
+    fn type_keys(&self, presses: &[rekey_core::layout::KeyPress]) -> bool {
+        use rekey_core::layout::KeyPress;
+        for press in presses {
+            let (keycode, shift) = match *press {
+                KeyPress::Key { index, shift } => match KEYCODES.get(index) {
+                    Some(&code) => (code, shift),
+                    None => return false,
+                },
+                KeyPress::Space => (VK_SPACE, false),
+                KeyPress::Tab => (VK_TAB, false),
+                KeyPress::Enter => (VK_RETURN, false),
+            };
+            self.tap_key_with_shift(keycode, shift);
+        }
+        true
     }
 
     fn type_text(&self, text: &str) {
@@ -475,6 +527,38 @@ mod tests {
             None
         );
         assert_eq!(layout_from_input_source("com.apple.keylayout.Dvorak"), None);
+    }
+
+    #[test]
+    fn keycodes_match_the_layout_table_positions() {
+        // The key codes are physical positions. Typing "привет" on Russian must
+        // come out as the same keys that spell "ghbdtn" on US: g,h,b,d,t,n.
+        use rekey_core::layout::KeyPress;
+        let presses = rekey_core::layout::presses_for("привет ", "ru").unwrap();
+        let codes: Vec<u16> = presses
+            .iter()
+            .map(|p| match *p {
+                KeyPress::Key { index, .. } => KEYCODES[index],
+                KeyPress::Space => VK_SPACE,
+                KeyPress::Tab => VK_TAB,
+                KeyPress::Enter => VK_RETURN,
+            })
+            .collect();
+        assert_eq!(
+            codes,
+            vec![5, 4, 11, 2, 17, 45, VK_SPACE],
+            "g h b d t n, then the space that ended the word"
+        );
+    }
+
+    #[test]
+    fn every_keycode_is_distinct() {
+        // A duplicate would silently type the wrong character for one key.
+        let mut seen = KEYCODES.to_vec();
+        seen.sort_unstable();
+        let before = seen.len();
+        seen.dedup();
+        assert_eq!(seen.len(), before, "duplicate key code in the table");
     }
 
     #[test]

@@ -297,6 +297,26 @@ fn main() {
         return;
     }
 
+    // Replays the key presses for `--text` on the layout given by
+    // `--on-layout`, which is how corrections are actually typed.
+    if let Some(target) = args
+        .iter()
+        .position(|a| a == "--on-layout")
+        .and_then(|i| args.get(i + 1))
+    {
+        let presses = rekey_hook::rekey_core_presses(&phrase, target)
+            .expect("text should be typeable on that layout");
+        let injector = MacInjector::new().expect("injector");
+        println!(
+            "replaying {} presses for {phrase:?} on {target}",
+            presses.len()
+        );
+        std::thread::sleep(Duration::from_millis(300));
+        rekey_hook::Injector::type_keys(&injector, &presses);
+        std::thread::sleep(Duration::from_millis(300));
+        return;
+    }
+
     if args.iter().any(|a| a == "--tap-option") {
         tap_option();
         std::thread::sleep(Duration::from_millis(700));
@@ -307,6 +327,11 @@ fn main() {
     }
 
     if as_user {
+        eprintln!(
+            "  target: app={:?} layout={:?}",
+            rekey_hook::platform::frontmost_app(),
+            rekey_hook::platform::current_layout()
+        );
         type_as_user(&phrase, delay_ms);
         // Give Rekey time to notice and replace.
         std::thread::sleep(Duration::from_millis(900));

@@ -33,6 +33,12 @@ const REPLACE_DELAY: Duration = Duration::from_millis(25);
 /// setting, and the check is a cheap in-process call.
 const PERMISSION_POLL: Duration = Duration::from_secs(1);
 
+/// How long to wait for a requested layout to become active, and in what steps.
+/// Short, because the wait happens on the main thread.
+const LAYOUT_SETTLE_STEP: Duration = Duration::from_millis(10);
+const LAYOUT_SETTLE_STEPS: usize = 8;
+const LAYOUT_SWITCH_TIMEOUT: Duration = Duration::from_millis(400);
+
 /// The most recently sampled OS context, shared with the hook thread.
 ///
 /// The hook thread must never sample this itself. macOS Text Input Services
@@ -140,6 +146,83 @@ pub fn spawn(
     Ok(running)
 }
 
+/// Carry out one correction.
+///
+/// The keyboard is switched *before* the replacement is typed, not after.
+/// Rekey types by replaying physical key presses, and a key press only means
+/// the right character once the matching layout is active — so the order is
+/// part of the mechanism, not a nicety. It also leaves the user on the right
+/// layout for the next word, which is the point of switching at all.
+fn apply(handle: &AppHandle, injector: &dyn TextWriter, action: &Action) {
+    let Action::Replace {
+        delete,
+        text,
+        switch_to,
+    } = action
+    else {
+        return;
+    };
+
+    let selected = match switch_to {
+        Some(layout) => select_layout_and_wait(handle, layout),
+        None => None,
+    };
+
+    if *delete > 0 {
+        injector.backspace(*delete);
+    }
+
+    // Replay the presses when the right layout is active; otherwise fall back
+    // to attaching the text to the events and hope the app honours it.
+    let replayed = selected
+        .as_deref()
+        .and_then(|layout| rekey_core::layout::presses_for(text, layout))
+        .is_some_and(|presses| injector.type_keys(&presses));
+
+    if !replayed {
+        log::debug!("replaying key presses was not possible; typing {text:?} directly");
+        injector.type_text(text);
+    }
+}
+
+/// Select `layout` on the main thread and confirm it took effect.
+///
+/// Returns the layout once it is actually active. Typing replayed key presses
+/// against the wrong layout would produce the wrong characters, so this is
+/// deliberately a confirmation rather than a request.
+fn select_layout_and_wait(handle: &AppHandle, layout: &str) -> Option<String> {
+    let (tx, rx) = mpsc::channel();
+    let wanted = layout.to_string();
+    let reply = wanted.clone();
+
+    let posted = handle.run_on_main_thread(move || {
+        let mut active = platform::select_layout(&reply)
+            && platform::current_layout().as_deref() == Some(reply.as_str());
+        // Selection is asynchronous; give it a moment to land. The window is
+        // short because it runs on the main thread.
+        for _ in 0..LAYOUT_SETTLE_STEPS {
+            if active {
+                break;
+            }
+            std::thread::sleep(LAYOUT_SETTLE_STEP);
+            active = platform::current_layout().as_deref() == Some(reply.as_str());
+        }
+        let _ = tx.send(active);
+    });
+
+    if posted.is_err() {
+        return None;
+    }
+    match rx.recv_timeout(LAYOUT_SWITCH_TIMEOUT) {
+        Ok(true) => Some(wanted),
+        Ok(false) => {
+            log::debug!("layout {wanted} did not become active; not replaying key presses");
+            None
+        }
+        Err(_) => None,
+    }
+}
+
 /// Start the thread that applies corrections, and return its inbox.
 ///
 /// Injection is deliberately off the tap callback: it keeps the callback fast
@@ -156,20 +239,7 @@ fn spawn_injector(
         .spawn(move || {
             for action in rx {
                 std::thread::sleep(REPLACE_DELAY);
-                action.apply(injector.as_ref());
-
-                // Switching the keyboard is the other half of a correction:
-                // without it the user is still on the wrong layout and the
-                // next word comes out wrong too. Text Input Services is
-                // main-thread-only, so this hops threads like the sampler.
-                if let Some(layout) = action.layout_switch() {
-                    let layout = layout.to_string();
-                    let _ = handle.run_on_main_thread(move || {
-                        if !platform::select_layout(&layout) {
-                            log::debug!("layout {layout} is not enabled; keyboard left alone");
-                        }
-                    });
-                }
+                apply(&handle, injector.as_ref(), &action);
             }
         })
         .map_err(|e| rekey_hook::HookError::Os(e.to_string()))?;

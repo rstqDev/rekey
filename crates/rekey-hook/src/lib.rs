@@ -50,3 +50,9 @@ impl fmt::Display for HookError {
 }
 
 impl std::error::Error for HookError {}
+
+/// Convenience re-export for examples: the key presses that type `text` on
+/// `layout`. See [`rekey_core::layout::presses_for`].
+pub fn rekey_core_presses(text: &str, layout: &str) -> Option<Vec<rekey_core::layout::KeyPress>> {
+    rekey_core::layout::presses_for(text, layout)
+}

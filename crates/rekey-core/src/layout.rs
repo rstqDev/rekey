@@ -331,7 +331,7 @@ impl Layout {
 
     /// Split a composed character into the (dead key, base key) presses this
     /// layout would need for it, e.g. Greek `ά` -> the `;` and `a` keys.
-    fn dead_key_presses(&self, c: char) -> Option<[(usize, bool); 2]> {
+    pub(crate) fn dead_key_presses(&self, c: char) -> Option<[(usize, bool); 2]> {
         let decomposed: Vec<char> = c.nfd().collect();
         if decomposed.len() != 2 {
             return None;
@@ -499,6 +499,61 @@ pub fn convert(text: &str, from: &Layout, to: &Layout) -> String {
     render(&to_presses(text, from), to)
 }
 
+/// One physical key press.
+///
+/// Whitespace has its own variants because the layout tables describe the 47
+/// printable keys only — space is not one of them, and a replacement almost
+/// always ends in the space that finished the word.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyPress {
+    /// A printable key, by position, with shift if the layout needs it.
+    Key {
+        index: usize,
+        shift: bool,
+    },
+    Space,
+    Tab,
+    Enter,
+}
+
+/// The key presses that would type `text` on `layout`.
+///
+/// Returns `None` if any character cannot be typed on that layout, in which
+/// case the caller must fall back to another way of producing the text.
+///
+/// This exists because attaching a Unicode string to a synthetic event is only
+/// a request: plenty of applications ignore it and re-derive the character from
+/// the key code instead. Replaying the actual key presses, with the matching
+/// layout selected, produces the right text in every application because it is
+/// indistinguishable from typing.
+pub fn presses_for(text: &str, layout_id: &str) -> Option<Vec<KeyPress>> {
+    let target = layout(layout_id)?;
+    let mut presses = Vec::with_capacity(text.chars().count());
+    for c in text.chars() {
+        match c {
+            ' ' => presses.push(KeyPress::Space),
+            '\t' => presses.push(KeyPress::Tab),
+            '\n' | '\r' => presses.push(KeyPress::Enter),
+            _ => match target.key_for(c) {
+                Some((index, shift)) => presses.push(KeyPress::Key { index, shift }),
+                None => {
+                    // Accented letters are two presses on layouts with dead keys.
+                    let [(di, ds), (bi, bs)] = target.dead_key_presses(c)?;
+                    presses.push(KeyPress::Key {
+                        index: di,
+                        shift: ds,
+                    });
+                    presses.push(KeyPress::Key {
+                        index: bi,
+                        shift: bs,
+                    });
+                }
+            },
+        }
+    }
+    Some(presses)
+}
+
 /// Convenience wrapper over [`convert`] taking layout ids.
 pub fn convert_by_id(text: &str, from: &str, to: &str) -> Option<String> {
     Some(convert(text, layout(from)?, layout(to)?))
@@ -655,6 +710,44 @@ mod tests {
     fn trailing_dead_key_shows_as_bare_accent() {
         // Pressing `;` on Greek and stopping leaves the accent visible.
         assert_eq!(convert_by_id(";", "us", "el").unwrap(), "΄");
+    }
+
+    #[test]
+    fn presses_reproduce_the_text_on_the_target_layout() {
+        // The presses for "привет" on Russian are the same physical keys as
+        // "ghbdtn" on US — which is exactly the point.
+        let presses = presses_for("привет", "ru").unwrap();
+        let us = layout("us").unwrap();
+        let typed: String = presses
+            .iter()
+            .map(|p| match *p {
+                KeyPress::Key { index, shift } => us.token_at(index, shift),
+                _ => " ",
+            })
+            .collect();
+        assert_eq!(typed, "ghbdtn");
+    }
+
+    #[test]
+    fn presses_cover_dead_key_accents() {
+        // ά is the tonos dead key then the vowel: two presses, not one.
+        let presses = presses_for("ά", "el").unwrap();
+        assert_eq!(presses.len(), 2);
+    }
+
+    #[test]
+    fn presses_include_the_space_that_ended_the_word() {
+        // Replacements carry their terminator, so a missing space mapping
+        // meant every correction fell back to the unreliable path.
+        let presses = presses_for("привет ", "ru").unwrap();
+        assert_eq!(presses.last(), Some(&KeyPress::Space));
+        assert_eq!(presses.len(), 7);
+    }
+
+    #[test]
+    fn presses_refuse_untypeable_text() {
+        assert!(presses_for("привет", "us").is_none());
+        assert!(presses_for("🎉", "ru").is_none());
     }
 
     #[test]

@@ -272,8 +272,54 @@ fn build_tray(app: &AppHandle, engine: SharedEngine) -> tauri::Result<()> {
     Ok(())
 }
 
+/// Send logs to a file as well as stderr.
+///
+/// A menu bar app launched from Finder has nowhere to write stderr, so the one
+/// time the log actually matters — a user reporting that something misbehaved
+/// — there is nothing to read. The file is small, truncated each launch, and
+/// lives beside the settings.
+fn init_logging() {
+    use std::io::Write;
+
+    let path = settings::config_dir().join("rekey.log");
+    let file = std::fs::create_dir_all(settings::config_dir())
+        .ok()
+        .and_then(|_| std::fs::File::create(&path).ok());
+
+    let mut builder =
+        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"));
+    if let Some(file) = file {
+        let file = std::sync::Mutex::new(file);
+        builder.format(move |buf, record| {
+            let line = format!(
+                "[{} {} {}] {}",
+                chrono_ish_timestamp(),
+                record.level(),
+                record.target(),
+                record.args()
+            );
+            if let Ok(mut file) = file.lock() {
+                let _ = writeln!(file, "{line}");
+                let _ = file.flush();
+            }
+            writeln!(buf, "{line}")
+        });
+    }
+    builder.init();
+    log::info!("logging to {}", path.display());
+}
+
+/// Seconds since the Unix epoch. Enough to order events in a log without
+/// taking on a date-formatting dependency for one line.
+fn chrono_ish_timestamp() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
 fn main() {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    init_logging();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())

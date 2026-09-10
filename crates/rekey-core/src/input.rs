@@ -69,6 +69,21 @@ pub trait TextWriter: Send + Sync {
     /// Type `text` as if the user had.
     fn type_text(&self, text: &str);
 
+    /// Type by replaying physical key presses, given as `(key index, shift)`.
+    ///
+    /// This is the reliable way to produce text. Attaching a Unicode string to
+    /// a synthetic event is only a request, and many applications ignore it and
+    /// re-derive the character from the key code instead — which yields the
+    /// same wrong letter repeated, because every such event carries the same
+    /// key code. Replaying the presses with the matching layout selected is
+    /// indistinguishable from typing.
+    ///
+    /// Returns false if the platform cannot do this, so the caller can fall
+    /// back to [`TextWriter::type_text`].
+    fn type_keys(&self, _presses: &[crate::layout::KeyPress]) -> bool {
+        false
+    }
+
     /// Replace the last `delete` characters with `text`.
     fn replace(&self, delete: usize, text: &str) {
         if delete > 0 {
