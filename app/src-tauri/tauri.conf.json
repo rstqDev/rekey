@@ -1,0 +1,54 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Rekey",
+  "version": "0.1.0",
+  "identifier": "app.rekey.desktop",
+  "build": {
+    "frontendDist": "../ui"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "settings",
+        "title": "Rekey",
+        "width": 460,
+        "height": 620,
+        "resizable": false,
+        "visible": false,
+        "titleBarStyle": "Transparent",
+        "hiddenTitle": true,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
+    },
+    "macOSPrivateApi": false
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["dmg", "app", "msi", "nsis"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.png"
+    ],
+    "resources": {
+      "../../crates/rekey-core/data/models": "models"
+    },
+    "copyright": "© 2026 Rostislav Ladnov. MIT licensed.",
+    "category": "Utility",
+    "shortDescription": "Fixes text typed on the wrong keyboard layout.",
+    "longDescription": "Rekey watches for words typed with the wrong keyboard layout — ghbdtn instead of привет — and rewrites them as you type. It runs entirely on your machine.",
+    "macOS": {
+      "minimumSystemVersion": "11.0"
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    }
+  }
+}

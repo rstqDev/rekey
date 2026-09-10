@@ -1,0 +1,298 @@
+/* Rekey settings window.
+   Deliberately plain: this is a utility people open twice and then forget.
+   Everything is sized so the whole window fits without scrolling on first run. */
+
+:root {
+  --bg: #f6f6f7;
+  --panel: #ffffff;
+  --text: #1c1c1e;
+  --muted: #6e6e73;
+  --line: #e2e2e5;
+  --accent: #4f46e5;
+  --accent-soft: #eeecfd;
+  --warn-bg: #fff5e6;
+  --warn-line: #f0c987;
+  --error-bg: #fdeded;
+  --error-line: #efb4b4;
+  --radius: 9px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1c1c1e;
+    --panel: #262629;
+    --text: #f2f2f4;
+    --muted: #9a9aa1;
+    --line: #38383c;
+    --accent: #8b83f7;
+    --accent-soft: #2c2a4a;
+    --warn-bg: #3a2f1c;
+    --warn-line: #7a6231;
+    --error-bg: #3a2222;
+    --error-line: #7a3f3f;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+/* -- header --------------------------------------------------------------- */
+
+header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 26px 20px 14px;
+}
+
+.brand { display: flex; align-items: center; gap: 11px; }
+
+.mark {
+  width: 30px; height: 30px;
+  display: grid; place-items: center;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 17px;
+  flex: none;
+}
+
+h1 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+.tagline { margin: 1px 0 0; font-size: 11.5px; color: var(--muted); }
+
+/* -- toggle switch -------------------------------------------------------- */
+
+.switch { margin-left: auto; cursor: pointer; }
+.switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+
+.track {
+  display: block;
+  width: 40px; height: 24px;
+  border-radius: 12px;
+  background: var(--line);
+  transition: background 0.16s ease;
+}
+
+.thumb {
+  display: block;
+  width: 20px; height: 20px;
+  margin: 2px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.28);
+  transition: transform 0.16s ease;
+}
+
+.switch input:checked + .track { background: var(--accent); }
+.switch input:checked + .track .thumb { transform: translateX(16px); }
+.switch input:focus-visible + .track { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* -- layout --------------------------------------------------------------- */
+
+main { padding: 0 20px 4px; }
+
+section {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 13px 14px;
+  margin-bottom: 10px;
+}
+
+h2 {
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.fine { margin: 6px 0 0; font-size: 11.5px; color: var(--muted); }
+
+/* -- notices -------------------------------------------------------------- */
+
+.notice {
+  margin: 0 20px 12px;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  border: 1px solid;
+  font-size: 12.5px;
+}
+
+.notice p { margin: 0; }
+.notice-warn { background: var(--warn-bg); border-color: var(--warn-line); }
+.notice-error { background: var(--error-bg); border-color: var(--error-line); }
+.notice-actions { display: flex; gap: 8px; margin-top: 10px; }
+
+button {
+  font: inherit;
+  padding: 5px 12px;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+}
+
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.primary:hover { filter: brightness(1.08); }
+
+/* -- try it --------------------------------------------------------------- */
+
+.try { display: grid; gap: 5px; justify-items: stretch; }
+
+.try input,
+.try-output {
+  width: 100%;
+  padding: 9px 11px;
+  border-radius: 7px;
+  font-size: 14px;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+}
+
+.try input {
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--text);
+  user-select: text;
+}
+
+.try input:focus { outline: none; border-color: var(--accent); }
+
+.try-output {
+  border: 1px solid transparent;
+  background: var(--accent-soft);
+  color: var(--text);
+  min-height: 36px;
+  user-select: text;
+  overflow-wrap: anywhere;
+}
+
+.try-output.unchanged { background: var(--bg); color: var(--muted); }
+.arrow { text-align: center; color: var(--muted); font-size: 11px; line-height: 1; }
+
+.inline-select {
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 1px 4px;
+}
+
+/* -- languages ------------------------------------------------------------ */
+
+.layouts { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; }
+
+.layouts li label {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 5px 2px;
+  cursor: pointer;
+  border-radius: 5px;
+}
+
+.layouts li label:hover { background: var(--bg); }
+.layouts .name { flex: 1; }
+
+.badge {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 20px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+
+/* -- segmented control ---------------------------------------------------- */
+
+.segmented {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 3px;
+  padding: 3px;
+  background: var(--bg);
+  border-radius: 8px;
+}
+
+.segmented button {
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  padding: 5px 0;
+  color: var(--muted);
+}
+
+.segmented button[aria-checked="true"] {
+  background: var(--panel);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+/* -- option rows ---------------------------------------------------------- */
+
+.row {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  padding: 6px 2px;
+  cursor: pointer;
+}
+
+.row + .row { border-top: 1px solid var(--line); }
+.row-title { display: block; }
+.row .fine { margin-top: 2px; }
+input[type="checkbox"] { margin: 2px 0 0; accent-color: var(--accent); flex: none; }
+
+.key-row { margin-top: 8px; }
+
+.key-row input {
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  user-select: text;
+}
+
+/* -- chips ---------------------------------------------------------------- */
+
+.chips { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 5px; }
+
+.chips li {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 20px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* -- footer --------------------------------------------------------------- */
+
+footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px 18px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.spacer { flex: 1; }

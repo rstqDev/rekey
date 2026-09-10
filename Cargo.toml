@@ -3,6 +3,8 @@ resolver = "2"
 members = [
     "crates/rekey-core",
     "crates/rekey-hook",
+    "crates/rekey-ai",
+    "app/src-tauri",
     "tools/modelgen",
     "tools/eval",
 ]

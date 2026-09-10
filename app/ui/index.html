@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Rekey</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header data-tauri-drag-region>
+    <div class="brand" data-tauri-drag-region>
+      <span class="mark" aria-hidden="true">⇄</span>
+      <div data-tauri-drag-region>
+        <h1 data-tauri-drag-region>Rekey</h1>
+        <p class="tagline" data-tauri-drag-region>Fixes text typed on the wrong layout</p>
+      </div>
+    </div>
+    <label class="switch" title="Pause or resume corrections">
+      <input type="checkbox" id="enabled" />
+      <span class="track"><span class="thumb"></span></span>
+    </label>
+  </header>
+
+  <div id="permission" class="notice notice-warn" hidden>
+    <p><strong>Rekey needs Accessibility access</strong> to see what you type and
+      put corrections back.</p>
+    <div class="notice-actions">
+      <button id="grant" class="primary">Grant access</button>
+      <button id="open-settings">Open System Settings</button>
+    </div>
+    <p class="fine">Quit and reopen Rekey once you have allowed it.</p>
+  </div>
+
+  <div id="no-models" class="notice notice-error" hidden>
+    <p><strong>No language models found.</strong> Corrections are disabled.
+      Reinstall Rekey, or run the model build from the repository.</p>
+  </div>
+
+  <main>
+    <section>
+      <h2>Try it</h2>
+      <div class="try">
+        <input
+          id="try-input"
+          type="text"
+          spellcheck="false"
+          autocomplete="off"
+          placeholder="ghbdtn rfr ltkf" />
+        <div class="arrow" aria-hidden="true">↓</div>
+        <output id="try-output" class="try-output">привет как дела</output>
+      </div>
+      <p class="fine">Typed with the
+        <select id="try-layout" class="inline-select"></select>
+        layout. Nothing is sent anywhere.</p>
+    </section>
+
+    <section>
+      <h2>Languages you type in</h2>
+      <p class="fine">Rekey compares what you typed against every language you
+        pick here. Pick only the ones you use.</p>
+      <ul id="layouts" class="layouts"></ul>
+    </section>
+
+    <section>
+      <h2>How eager should it be?</h2>
+      <div class="segmented" id="sensitivity" role="radiogroup">
+        <button role="radio" data-value="cautious">Cautious</button>
+        <button role="radio" data-value="balanced">Balanced</button>
+        <button role="radio" data-value="eager">Eager</button>
+      </div>
+      <p class="fine" id="sensitivity-hint"></p>
+    </section>
+
+    <section>
+      <h2>Options</h2>
+      <label class="row">
+        <input type="checkbox" id="skip-caps" />
+        <span>
+          <span class="row-title">Leave ALL CAPS alone</span>
+          <span class="fine">Acronyms like HTTP and NASA are usually meant as typed.</span>
+        </span>
+      </label>
+      <label class="row">
+        <input type="checkbox" id="launch" />
+        <span>
+          <span class="row-title">Launch at login</span>
+        </span>
+      </label>
+      <label class="row">
+        <input type="checkbox" id="ai" />
+        <span>
+          <span class="row-title">Ask Claude about ambiguous words</span>
+          <span class="fine">Off by default. When on, single ambiguous words —
+            never whole sentences — are sent to Anthropic's API in the
+            background, and the answer is remembered locally. Everything else
+            stays on this machine.</span>
+        </span>
+      </label>
+      <div id="ai-key-row" class="key-row" hidden>
+        <input
+          id="api-key"
+          type="password"
+          spellcheck="false"
+          autocomplete="off"
+          placeholder="sk-ant-…" />
+      </div>
+    </section>
+
+    <section>
+      <h2>Never correct in</h2>
+      <p class="fine">Password managers and terminals, where a silent rewrite
+        would do real damage.</p>
+      <ul id="excluded" class="chips"></ul>
+    </section>
+
+    <section id="exceptions-section" hidden>
+      <h2>Words you told it to leave alone</h2>
+      <ul id="exceptions" class="chips"></ul>
+    </section>
+  </main>
+
+  <footer>
+    <span id="stats">No corrections yet</span>
+    <span class="spacer"></span>
+    <span id="version" class="fine"></span>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

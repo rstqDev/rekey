@@ -1,0 +1,33 @@
+[package]
+name = "rekey-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Rekey — fixes text typed on the wrong keyboard layout."
+default-run = "rekey"
+
+[[bin]]
+name = "rekey"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+rekey-core = { workspace = true }
+rekey-hook = { workspace = true }
+rekey-ai = { workspace = true }
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-autostart = "2"
+tauri-plugin-opener = "2"
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+log = { workspace = true }
+env_logger = "0.11"
+dirs = "6"
+
+[features]
+# Tauri's default production behaviour; kept explicit for the release build.
+custom-protocol = ["tauri/custom-protocol"]
