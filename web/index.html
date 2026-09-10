@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Rekey — fix text typed on the wrong keyboard layout</title>
+<meta name="description" content="Rekey fixes words typed with the wrong keyboard layout as you type them. ghbdtn becomes привет. Free, open source, runs entirely on your machine. macOS and Windows." />
+<meta property="og:title" content="Rekey — ghbdtn → привет" />
+<meta property="og:description" content="Fixes text typed on the wrong keyboard layout, as you type. Free, open source, fully offline." />
+<meta property="og:type" content="website" />
+<meta name="twitter:card" content="summary_large_image" />
+<link rel="icon" href="favicon.png" />
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<header class="nav">
+  <a class="logo" href="/">
+    <span class="mark" aria-hidden="true">⇄</span>
+    <span>Rekey</span>
+  </a>
+  <nav>
+    <a href="#how">How it works</a>
+    <a href="#accuracy">Accuracy</a>
+    <a href="#privacy">Privacy</a>
+    <a href="https://github.com/rostislavladnov/rekey">GitHub</a>
+  </nav>
+</header>
+
+<main>
+
+<section class="hero">
+  <h1>You typed <code class="wrong">ghbdtn</code>.<br />You meant <code class="right">привет</code>.</h1>
+  <p class="lede">
+    Rekey notices when a word came out on the wrong keyboard layout and fixes it
+    before you do. Free, open source, and it never sends your keystrokes
+    anywhere.
+  </p>
+
+  <div class="downloads">
+    <a class="btn primary" href="https://github.com/rostislavladnov/rekey/releases/latest" data-os="mac">
+      Download for macOS
+    </a>
+    <a class="btn" href="https://github.com/rostislavladnov/rekey/releases/latest" data-os="win">
+      Download for Windows
+    </a>
+  </div>
+  <p class="fine">Free forever · MIT licensed · ~6 MB</p>
+</section>
+
+<section class="demo" aria-label="Demonstration">
+  <div class="editor">
+    <div class="editor-bar"><span></span><span></span><span></span></div>
+    <div class="editor-body">
+      <p class="typed" id="line"><span id="text"></span><span class="caret"></span></p>
+    </div>
+  </div>
+  <p class="fine center">Rekey rewrites the word the moment you press space.</p>
+</section>
+
+<section id="how">
+  <h2>How it decides</h2>
+  <div class="cards">
+    <article>
+      <h3>It re-types the word</h3>
+      <p>Every layout is described by <em>physical key position</em>, so
+        Rekey can ask: if these same keys had been pressed on Russian, what
+        would they have produced?</p>
+    </article>
+    <article>
+      <h3>It scores both readings</h3>
+      <p>Both spellings are scored against language models built from
+        subtitle corpora — real speech, so they know <code>норм</code>,
+        <code>чувак</code>, <code>gonna</code> and <code>lol</code>, not just
+        dictionary words.</p>
+    </article>
+    <article>
+      <h3>It usually does nothing</h3>
+      <p>Passwords, terminals, acronyms, file paths, anything with a digit,
+        and any word that is already real — all refused outright. Doing
+        nothing is the safe answer and Rekey prefers it.</p>
+    </article>
+  </div>
+</section>
+
+<section id="accuracy">
+  <h2>The numbers, including the bad ones</h2>
+  <p class="section-lede">
+    Measured over 54,000 words per direction. <strong>Recall</strong> is how
+    many genuine mistakes get fixed. <strong>False positives</strong> is how
+    often a correctly-typed word gets wrecked — the number that actually
+    matters.
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Layout pair</th><th>Mistakes caught</th><th>Correct words wrecked</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>English ↔ Russian</td><td>99.0% / 99.5%</td><td class="good">0.00%</td></tr>
+      <tr><td>English ↔ Ukrainian</td><td>93.3% / 99.4%</td><td class="good">0.00%</td></tr>
+      <tr><td>English ↔ Hebrew</td><td>95.5% / 96.5%</td><td class="good">0.00%</td></tr>
+      <tr><td>English ↔ Arabic</td><td>98.9% / 89.7%</td><td class="good">0.00%</td></tr>
+      <tr><td>English ↔ Greek</td><td>95.8% / 88.0%</td><td class="good">0.00%</td></tr>
+      <tr class="muted"><td>English ↔ German, Spanish, French, Turkish</td><td>1–43%</td><td class="good">0.00%</td></tr>
+    </tbody>
+  </table>
+
+  <div class="caveat">
+    <h3>Why that last row is bad, and why it stays</h3>
+    <p>
+      Spanish and US QWERTY produce <strong>identical letters</strong> for a–z.
+      Only <code>ñ</code> and the accent keys differ. German swaps
+      <code>y</code> and <code>z</code>; French moves a handful of keys. For
+      these, "typed on the wrong layout" barely exists as a failure mode — the
+      letters come out the same either way, so there is almost nothing to
+      detect.
+    </p>
+    <p>
+      Rekey ships them marked <em>limited</em> and holds them to a higher bar
+      so they cannot churn ordinary English. What Spanish and German writers
+      actually want is accent restoration — <code>cancion</code> →
+      <code>canción</code> — which is a different feature and is not built yet.
+    </p>
+  </div>
+</section>
+
+<section id="privacy">
+  <h2>Privacy</h2>
+  <div class="cards two">
+    <article class="solid">
+      <h3>Everything runs locally</h3>
+      <p>No telemetry, no analytics, no account, no network calls. The
+        language models ship inside the app. With the optional assist off,
+        Rekey never opens a socket.</p>
+    </article>
+    <article>
+      <h3>The one exception, off by default</h3>
+      <p>You can switch on <em>Ask Claude about ambiguous words</em> and supply
+        your own API key. Then single ambiguous words — never whole sentences,
+        never anything from a password field — go to Anthropic's API, and the
+        answer is cached locally so each word is sent at most once.</p>
+    </article>
+  </div>
+  <p class="fine center">
+    Rekey needs Accessibility permission on macOS to see the keyboard. That is
+    a lot of trust to ask for, which is why
+    <a href="https://github.com/rostislavladnov/rekey">every line of it is
+    readable</a>.
+  </p>
+</section>
+
+<section class="support">
+  <h2>It's free. It'll stay free.</h2>
+  <p>If Rekey saves you from retyping one more word, you can buy me a coffee.
+    That's the whole business model.</p>
+  <a class="btn coffee" href="https://ko-fi.com/rekeyapp">☕ Buy me a coffee</a>
+  <p class="fine">Or just <a href="https://github.com/rostislavladnov/rekey">star it on GitHub</a> — that helps too.</p>
+</section>
+
+</main>
+
+<footer>
+  <p>
+    <a href="https://github.com/rostislavladnov/rekey">Source</a> ·
+    <a href="https://github.com/rostislavladnov/rekey/releases">Releases</a> ·
+    <a href="https://github.com/rostislavladnov/rekey/issues">Report a bug</a> ·
+    MIT licensed
+  </p>
+  <p class="fine">
+    Word frequency data from
+    <a href="https://github.com/hermitdave/FrequencyWords">hermitdave/FrequencyWords</a>.
+  </p>
+</footer>
+
+<script src="demo.js"></script>
+</body>
+</html>
