@@ -290,18 +290,28 @@ impl Injector for MacInjector {
     }
 
     fn type_text(&self, text: &str) {
-        if text.is_empty() {
-            return;
-        }
-        // Typing the whole string on a single synthetic event keeps the
-        // replacement atomic from the receiving app's point of view, and avoids
-        // per-character races in fast editors.
-        for down in [true, false] {
-            let Ok(event) = CGEvent::new_keyboard_event(self.source.clone(), 0, down) else {
-                return;
-            };
-            event.set_string(text);
-            self.post(event);
+        // One event per character, because a CGEvent *is* one keystroke.
+        //
+        // Attaching a whole string to a single event relies on the receiving
+        // app inserting `[NSEvent characters]` verbatim. Some do; TextEdit
+        // does not, and takes only the first character — so a correction to
+        // "привет" arrived as a lone "п". Worse, an app that re-derives the
+        // character from the keycode sees keycode 0, which is the `a` key, and
+        // types `a` on a US layout or `ф` on a Russian one.
+        //
+        // Sending each character on its own event is what a keyboard does, and
+        // every app handles it.
+        let mut encoded = String::with_capacity(4);
+        for ch in text.chars() {
+            encoded.clear();
+            encoded.push(ch);
+            for down in [true, false] {
+                let Ok(event) = CGEvent::new_keyboard_event(self.source.clone(), 0, down) else {
+                    return;
+                };
+                event.set_string(&encoded);
+                self.post(event);
+            }
         }
     }
 }

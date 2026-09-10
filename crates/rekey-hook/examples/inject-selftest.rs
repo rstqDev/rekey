@@ -202,6 +202,71 @@ fn main() {
         return;
     }
 
+    // Varies the two remaining differences between the working matrix and the
+    // real injector: the user-data stamp, and whether the text is ASCII or in
+    // the script of the active layout.
+    if args.iter().any(|a| a == "--matrix2") {
+        use core_graphics::event::EventField;
+        const REKEY_SIGNATURE: i64 = 0x52_454B_4559;
+        std::thread::sleep(Duration::from_secs(3));
+        for (label, stamp, text) in [
+            ("A", false, "[ascii-nostamp]"),
+            ("B", true, "[ascii-stamp]"),
+            ("C", false, "[кириллица-nostamp]"),
+            ("D", true, "[кириллица-stamp]"),
+        ] {
+            let source = CGEventSource::new(CGEventSourceStateID::Private).expect("source");
+            for down in [true, false] {
+                let e =
+                    CGEvent::new_keyboard_event(source.clone(), 0, down).expect("keyboard event");
+                e.set_string(text);
+                if stamp {
+                    e.set_integer_value_field(EventField::EVENT_SOURCE_USER_DATA, REKEY_SIGNATURE);
+                }
+                e.post(CGEventTapLocation::HID);
+            }
+            let _ = label;
+            std::thread::sleep(Duration::from_millis(250));
+        }
+        std::thread::sleep(Duration::from_millis(400));
+        copy_all();
+        std::thread::sleep(Duration::from_millis(300));
+        println!("matrix2 done; result on the clipboard");
+        return;
+    }
+
+    // Isolates which part of the injector setup breaks set_string. Every
+    // injected event is built on keycode 0, so when the Unicode string is
+    // ignored exactly one character arrives: whatever keycode 0 means on the
+    // active layout.
+    if args.iter().any(|a| a == "--matrix") {
+        use core_graphics::event::CGEventFlags;
+        std::thread::sleep(Duration::from_secs(3));
+        for (label, state, clear_flags) in [
+            ("hid+keepflags", CGEventSourceStateID::HIDSystemState, false),
+            ("hid+clearflags", CGEventSourceStateID::HIDSystemState, true),
+            ("private+keepflags", CGEventSourceStateID::Private, false),
+            ("private+clearflags", CGEventSourceStateID::Private, true),
+        ] {
+            let source = CGEventSource::new(state).expect("event source");
+            for down in [true, false] {
+                let e =
+                    CGEvent::new_keyboard_event(source.clone(), 0, down).expect("keyboard event");
+                e.set_string(&format!("<{label}>"));
+                if clear_flags {
+                    e.set_flags(CGEventFlags::empty());
+                }
+                e.post(CGEventTapLocation::HID);
+            }
+            std::thread::sleep(Duration::from_millis(250));
+        }
+        std::thread::sleep(Duration::from_millis(400));
+        copy_all();
+        std::thread::sleep(Duration::from_millis(300));
+        println!("matrix done; result on the clipboard");
+        return;
+    }
+
     // Demonstrates what an inherited modifier flag does to injected text.
     // Every injected event is built on keycode 0 — the `a` key — so a stray
     // flag can override the Unicode string entirely.
@@ -249,10 +314,21 @@ fn main() {
         std::thread::sleep(Duration::from_millis(300));
         println!("typed {phrase:?} at {delay_ms}ms/key; result on the clipboard");
     } else {
+        // Report the target, so an empty document is never mistaken for a
+        // broken injector when the real cause was focus sitting elsewhere.
+        eprintln!(
+            "  target: app={:?} layout={:?}",
+            rekey_hook::platform::frontmost_app(),
+            rekey_hook::platform::current_layout()
+        );
         let injector = MacInjector::new().expect("create injector");
         injector.type_text(&phrase);
         std::thread::sleep(Duration::from_millis(400));
-        injector.backspace(phrase.chars().count());
-        println!("typed and removed 7 characters; the tap saw them all");
+        if args.iter().any(|a| a == "--keep") {
+            println!("typed {phrase:?} and left it in place");
+        } else {
+            injector.backspace(phrase.chars().count());
+            println!("typed {phrase:?} and removed it again");
+        }
     }
 }
