@@ -138,17 +138,58 @@ def render(size, template=False):
     return rows
 
 
-def write_png(path, size, rows):
+def write_ico(path, sizes):
+    """Write a Windows .ico containing PNG-compressed entries.
+
+    tauri-build requires this file to generate the Windows resource, and
+    Windows Vista onward reads PNG data inside an ICO directly, so there is no
+    need to emit legacy BMP entries.
+    """
+    images = []
+    for size in sizes:
+        png = png_bytes(size, render(size))
+        images.append((size, png))
+
+    header = struct.pack("<HHH", 0, 1, len(images))
+    offset = len(header) + 16 * len(images)
+    entries = b""
+    for size, png in images:
+        # 0 in the width/height byte means 256 px.
+        entries += struct.pack(
+            "<BBBBHHII",
+            0 if size >= 256 else size,
+            0 if size >= 256 else size,
+            0,            # palette size: 0 for truecolour
+            0,            # reserved
+            1,            # colour planes
+            32,           # bits per pixel
+            len(png),
+            offset,
+        )
+        offset += len(png)
+
+    path.write_bytes(header + entries + b"".join(png for _, png in images))
+    return path.stat().st_size
+
+
+def png_bytes(size, rows):
+    """The PNG file for `rows`, as bytes."""
     raw = b"".join(b"\x00" + row for row in rows)
 
     def chunk(tag, data):
         c = struct.pack(">I", len(data)) + tag + data
         return c + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
 
-    png = b"\x89PNG\r\n\x1a\n"
-    png += chunk(b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0))
-    png += chunk(b"IDAT", zlib.compress(raw, 9))
-    png += chunk(b"IEND", b"")
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(raw, 9))
+        + chunk(b"IEND", b"")
+    )
+
+
+def write_png(path, size, rows):
+    png = png_bytes(size, rows)
     path.write_bytes(png)
     return len(png)
 
@@ -169,6 +210,10 @@ def main():
     for size, name in [(22, "trayTemplate.png"), (44, "trayTemplate@2x.png")]:
         n = write_png(OUT / name, size, render(size, template=True))
         print(f"  {name:<18} {size:>4}px  {n:>7} bytes  (template)")
+
+    # Windows resource icon, required by tauri-build.
+    n = write_ico(OUT / "icon.ico", [16, 24, 32, 48, 64, 128, 256])
+    print(f"  {'icon.ico':<18} multi  {n:>7} bytes")
 
 
 if __name__ == "__main__":
