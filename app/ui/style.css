@@ -322,7 +322,27 @@ main {
   display: none;
 }
 
-/* -- switch ---------------------------------------------------------------- */
+/* -- switch ----------------------------------------------------------------
+ * Two implementations. Where the system can draw a real switch, it does, and
+ * the custom one is removed entirely — a hand-built control is always slightly
+ * wrong, and gets more wrong as the system moves on. The fallback exists for
+ * engines without it, currently everything outside WebKit.
+ */
+
+[data-native-switch="on"] .switch input {
+  position: static;
+  opacity: 1;
+  width: auto;
+  height: auto;
+  appearance: auto;
+  accent-color: var(--accent);
+  margin: 0;
+}
+
+[data-native-switch="on"] .switch-track {
+  display: none;
+}
+
 
 .switch {
   flex: none;
@@ -400,69 +420,27 @@ main {
 
 /* -- select ---------------------------------------------------------------- */
 
+/* A pop-up button. On macOS the system draws it, chevron and all, so the only
+   job here is to size it and stay out of the way; overriding its background and
+   border is what made the old one read as a web control. */
 .select {
   flex: none;
   max-width: 190px;
   font: inherit;
   font-size: var(--size-body);
   color: var(--text);
+}
+
+[data-platform="windows"] .select {
   background: var(--control-bg);
   border: 1px solid var(--control-border);
   border-radius: var(--radius-control);
   padding: 4px 8px;
-  box-shadow: var(--shadow-control);
 }
 
 .select:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
-}
-
-/* -- segmented control ----------------------------------------------------- */
-
-.segmented {
-  flex: none;
-  display: grid;
-  grid-auto-flow: column;
-  gap: 2px;
-  padding: 2px;
-  background: var(--track-off);
-  border-radius: var(--radius-control);
-}
-
-.segmented button {
-  font: inherit;
-  font-size: var(--size-detail);
-  border: none;
-  background: transparent;
-  color: var(--text);
-  border-radius: calc(var(--radius-control) - 1px);
-  padding: 3px 10px;
-  cursor: pointer;
-}
-
-.segmented button[aria-checked="true"] {
-  background: var(--group-bg);
-  font-weight: 600;
-  box-shadow: var(--shadow-control);
-}
-
-[data-platform="windows"] .segmented {
-  background: transparent;
-  gap: 4px;
-  padding: 0;
-}
-
-[data-platform="windows"] .segmented button {
-  border: 1px solid var(--control-border);
-  background: var(--control-bg);
-  padding: 4px 11px;
-}
-
-[data-platform="windows"] .segmented button[aria-checked="true"] {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-text);
 }
 
 /* -- fields and preview ---------------------------------------------------- */

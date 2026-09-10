@@ -446,6 +446,13 @@ fn main() {
             undo
         ])
         .setup(|app| {
+            // Tauri sets NSApplicationActivationPolicyRegular by default, which
+            // overrides LSUIElement in the bundle's Info.plist — so the app
+            // appears in the Dock and the app switcher despite being a menu bar
+            // utility. Accessory is what makes it a background app for real.
+            #[cfg(target_os = "macos")]
+            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+
             let handle = app.handle().clone();
             let settings = Settings::load();
 

@@ -37,7 +37,7 @@
           <span class="row-detail" id="enabled-detail">Watching for words typed on the wrong layout</span>
         </div>
         <label class="switch">
-          <input type="checkbox" id="enabled" />
+          <input type="checkbox" id="enabled" switch />
           <span class="switch-track"><span class="switch-thumb"></span></span>
         </label>
       </div>
@@ -76,11 +76,11 @@
           <span class="row-title">How eager</span>
           <span class="row-detail" id="sensitivity-hint"></span>
         </div>
-        <div class="segmented" id="sensitivity" role="radiogroup" aria-label="How eager">
-          <button role="radio" data-value="cautious">Cautious</button>
-          <button role="radio" data-value="balanced">Balanced</button>
-          <button role="radio" data-value="eager">Eager</button>
-        </div>
+        <select id="sensitivity" class="select" aria-label="How eager">
+          <option value="cautious">Cautious</option>
+          <option value="balanced">Balanced</option>
+          <option value="eager">Eager</option>
+        </select>
       </div>
       <div class="row">
         <div class="row-text">
@@ -105,7 +105,7 @@
           <span class="row-detail">Acronyms like HTTP and NASA are usually meant as typed</span>
         </div>
         <label class="switch">
-          <input type="checkbox" id="skip-caps" />
+          <input type="checkbox" id="skip-caps" switch />
           <span class="switch-track"><span class="switch-thumb"></span></span>
         </label>
       </div>
@@ -116,7 +116,7 @@
       <div class="row">
         <span class="row-title">Open at login</span>
         <label class="switch">
-          <input type="checkbox" id="launch" />
+          <input type="checkbox" id="launch" switch />
           <span class="switch-track"><span class="switch-thumb"></span></span>
         </label>
       </div>
@@ -128,7 +128,7 @@
           <span class="row-detail" id="ai-status"></span>
         </div>
         <label class="switch">
-          <input type="checkbox" id="ai" />
+          <input type="checkbox" id="ai" switch />
           <span class="switch-track"><span class="switch-thumb"></span></span>
         </label>
       </div>

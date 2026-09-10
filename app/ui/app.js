@@ -202,10 +202,7 @@ function renderLayouts() {
 }
 
 function renderSensitivity() {
-  for (const button of $("sensitivity").querySelectorAll("button")) {
-    const selected = button.dataset.value === state.sensitivity;
-    button.setAttribute("aria-checked", String(selected));
-  }
+  $("sensitivity").value = state.sensitivity;
   $("sensitivity-hint").textContent = SENSITIVITY_HINTS[state.sensitivity] ?? "";
 }
 
@@ -236,21 +233,7 @@ async function save(changes = {}, extras = {}) {
     ...changes,
   };
   await invoke("set_config", { config, ...extras });
-  await // Scroll edge effect: separate the title bar once content passes beneath it.
-document.addEventListener(
-  "scroll",
-  () => document.body.classList.toggle("scrolled", window.scrollY > 2),
-  { passive: true }
-);
-
-refresh();
-}
-
-/** Turn "doubletap:option" into the tagged shape the engine expects. */
-function parseShortcut(value) {
-  if (!value || value === "off") return { kind: "off" };
-  const [kind, modifier] = value.split(":");
-  return { kind, modifier };
+  await refresh();
 }
 
 let previewTimer = null;
@@ -288,10 +271,9 @@ $("shortcut").addEventListener("change", (e) =>
   save({ shortcut: parseShortcut(e.target.value) })
 );
 
-$("sensitivity").addEventListener("click", (e) => {
-  const button = e.target.closest("button");
-  if (button) save({ sensitivity: button.dataset.value });
-});
+$("sensitivity").addEventListener("change", (e) =>
+  save({ sensitivity: e.target.value })
+);
 
 $("try-input").addEventListener("input", updatePreview);
 $("try-layout").addEventListener("change", updatePreview);
@@ -320,12 +302,34 @@ if (!invoke) {
     "The settings window cannot show or change anything. " +
     "Please reinstall Rekey and report this.</p></div>";
 } else {
-  // Scroll edge effect: separate the title bar once content passes beneath it.
+  refresh();
+}
+
+// -- window chrome ----------------------------------------------------------
+
+// WebKit draws a real system switch for <input type="checkbox" switch>. Detect
+// it rather than assuming it from the platform, so the custom fallback is used
+// wherever the real thing is unavailable instead of rendering a bare checkbox.
+if ("switch" in document.createElement("input")) {
+  document.documentElement.dataset.nativeSwitch = "on";
+}
+
+// An overlaid title bar leaves the system nothing to grab, so the strip has to
+// ask the window to start dragging itself.
+const titlebar = document.querySelector(".titlebar");
+
+titlebar?.addEventListener("mousedown", async (event) => {
+  if (event.button !== 0) return;
+  try {
+    await bridge?.window?.getCurrentWindow?.().startDragging();
+  } catch {
+    // Running against the dev mock, or without the window API: nothing to drag.
+  }
+});
+
+// Scroll edge effect: separate the title bar once content passes beneath it.
 document.addEventListener(
   "scroll",
   () => document.body.classList.toggle("scrolled", window.scrollY > 2),
   { passive: true }
 );
-
-refresh();
-}
