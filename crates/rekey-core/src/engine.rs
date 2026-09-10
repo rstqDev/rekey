@@ -202,6 +202,13 @@ impl Engine {
             return Action::None;
         }
 
+        if self.modifier_down_at.is_some() {
+            log::debug!(
+                "disarming the modifier tap because of {:?} ({:?})",
+                event.key,
+                event.character
+            );
+        }
         self.modifier_down_at = None;
 
         let input = match event.key {
@@ -245,6 +252,15 @@ impl Engine {
 
         let cycle = self.build_cycle(text, prefix, core, suffix, terminator, active);
         let verdict = self.detector.evaluate(core, active);
+
+        log::debug!(
+            "word {text:?} on {active} -> {}",
+            match &verdict {
+                Verdict::Switch(c) => format!("switch to {:?}", c.converted),
+                Verdict::Ambiguous(c) => format!("ambiguous ({:?})", c.converted),
+                Verdict::Keep(reason) => format!("keep ({reason:?})"),
+            }
+        );
 
         let Verdict::Switch(candidate) = verdict else {
             // Nothing to do now, but remember the word so the shortcut can
@@ -335,6 +351,10 @@ impl Engine {
         let alt_down = modifiers.alt;
         let others_held = modifiers.shift || modifiers.control || modifiers.meta;
         let was_down = std::mem::replace(&mut self.alt_was_down, alt_down);
+        log::debug!(
+            "modifiers: alt={alt_down} was={was_down} others={others_held} armed={}",
+            self.modifier_down_at.is_some()
+        );
 
         if others_held {
             // Some other modifier joined in; this is a chord, not a tap.
@@ -351,7 +371,7 @@ impl Engine {
             // Released: a tap if nothing intervened and it was brief.
             (true, false) => match self.modifier_down_at.take() {
                 Some(at) if at.elapsed() <= MODIFIER_TAP_WINDOW => {
-                    log::debug!("option tapped; cycling the last word");
+                    log::info!("option tapped; cycling the last word");
                     self.cycle_last_word()
                 }
                 Some(_) => {
@@ -384,7 +404,7 @@ impl Engine {
         }
 
         let Some(cycle) = self.last_word.as_mut() else {
-            log::debug!("no word to cycle");
+            log::info!("option tapped but there is no word to cycle");
             return Action::None;
         };
         let delete = cycle.on_screen_len();
@@ -406,7 +426,7 @@ impl Engine {
             self.learn_exception(&original);
         }
 
-        log::debug!(
+        log::info!(
             "cycle -> variant {next}/{variant_count} delete={delete} \
              text={text:?} switch_to={switch_to:?}"
         );

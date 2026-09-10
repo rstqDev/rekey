@@ -286,8 +286,16 @@ fn init_logging() {
         .ok()
         .and_then(|_| std::fs::File::create(&path).ok());
 
-    let mut builder =
-        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"));
+    // Rekey's own crates log verbosely by default, dependencies do not.
+    //
+    // `open -a` does not pass environment variables to the launched app, so a
+    // menu bar app can never rely on RUST_LOG being set — which is exactly how
+    // the first round of diagnostics came back empty. RUST_LOG still overrides
+    // this when the app is started from a shell.
+    let mut builder = env_logger::Builder::from_env(
+        env_logger::Env::default()
+            .default_filter_or("info,rekey=debug,rekey_core=debug,rekey_hook=trace"),
+    );
     if let Some(file) = file {
         let file = std::sync::Mutex::new(file);
         builder.format(move |buf, record| {

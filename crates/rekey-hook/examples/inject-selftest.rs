@@ -317,12 +317,35 @@ fn main() {
         return;
     }
 
+    // Types a phrase and then taps Option twice, all from one process so that
+    // nothing can steal focus between the steps. Separate invocations kept
+    // handing focus back to whichever app was frontmost, which made every
+    // result meaningless.
+    if args.iter().any(|a| a == "--scenario") {
+        eprintln!(
+            "  target: app={:?} layout={:?}",
+            rekey_hook::platform::frontmost_app(),
+            rekey_hook::platform::current_layout()
+        );
+        type_as_user(&phrase, delay_ms);
+        std::thread::sleep(Duration::from_millis(900));
+        println!("STEP typed");
+
+        for step in 1..=2 {
+            tap_option();
+            std::thread::sleep(Duration::from_millis(900));
+            println!("STEP option{step}");
+        }
+        return;
+    }
+
     if args.iter().any(|a| a == "--tap-option") {
         tap_option();
+        // Deliberately no select-all/copy afterwards: those are chords, and a
+        // chord clears the very record the next tap needs. Read the target
+        // document directly instead.
         std::thread::sleep(Duration::from_millis(700));
-        copy_all();
-        std::thread::sleep(Duration::from_millis(300));
-        println!("tapped Option; result on the clipboard");
+        println!("tapped Option");
         return;
     }
 

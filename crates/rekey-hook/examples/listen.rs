@@ -4,6 +4,17 @@
 //!
 //! The quickest way to answer "is the hook seeing this at all?" — which is a
 //! very different question from "is the engine reacting to it".
+//!
+//! It is also how to check that Rekey still recognises its own typing. Run
+//! this, then in another shell:
+//!
+//! ```text
+//! cargo run -p rekey-hook --example inject-selftest -- --text "hi " --on-layout us
+//! ```
+//!
+//! Every resulting event must report `synthetic=true`. If it does not, Rekey
+//! will react to its own corrections and type over them — which looks like
+//! doubled letters rather than anything to do with detection.
 
 use rekey_hook::platform;
 use std::sync::atomic::{AtomicUsize, Ordering};

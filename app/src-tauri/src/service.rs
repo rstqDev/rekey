@@ -163,6 +163,8 @@ fn apply(handle: &AppHandle, injector: &dyn TextWriter, action: &Action) {
         return;
     };
 
+    log::info!("applying: delete={delete} text={text:?} switch_to={switch_to:?}");
+
     let selected = match switch_to {
         Some(layout) => select_layout_and_wait(handle, layout),
         None => None,
@@ -174,13 +176,20 @@ fn apply(handle: &AppHandle, injector: &dyn TextWriter, action: &Action) {
 
     // Replay the presses when the right layout is active; otherwise fall back
     // to attaching the text to the events and hope the app honours it.
-    let replayed = selected
+    //
+    // The presses are resolved *before* anything is typed: `type_keys` giving
+    // up half way would otherwise leave a partial word that the fallback then
+    // types over the top of.
+    let presses = selected
         .as_deref()
-        .and_then(|layout| rekey_core::layout::presses_for(text, layout))
-        .is_some_and(|presses| injector.type_keys(&presses));
+        .and_then(|layout| rekey_core::layout::presses_for(text, layout));
+    let replayed = match presses {
+        Some(presses) => injector.type_keys(&presses),
+        None => false,
+    };
 
     if !replayed {
-        log::debug!("replaying key presses was not possible; typing {text:?} directly");
+        log::info!("replaying key presses was not possible; typing {text:?} directly");
         injector.type_text(text);
     }
 }
@@ -191,36 +200,49 @@ fn apply(handle: &AppHandle, injector: &dyn TextWriter, action: &Action) {
 /// against the wrong layout would produce the wrong characters, so this is
 /// deliberately a confirmation rather than a request.
 fn select_layout_and_wait(handle: &AppHandle, layout: &str) -> Option<String> {
-    let (tx, rx) = mpsc::channel();
-    let wanted = layout.to_string();
-    let reply = wanted.clone();
-
-    let posted = handle.run_on_main_thread(move || {
-        let mut active = platform::select_layout(&reply)
-            && platform::current_layout().as_deref() == Some(reply.as_str());
-        // Selection is asynchronous; give it a moment to land. The window is
-        // short because it runs on the main thread.
-        for _ in 0..LAYOUT_SETTLE_STEPS {
-            if active {
-                break;
-            }
-            std::thread::sleep(LAYOUT_SETTLE_STEP);
-            active = platform::current_layout().as_deref() == Some(reply.as_str());
-        }
-        let _ = tx.send(active);
-    });
-
-    if posted.is_err() {
+    if !run_on_main(handle, {
+        let layout = layout.to_string();
+        move || platform::select_layout(&layout)
+    })? {
+        log::debug!("layout {layout} is not enabled; keyboard left alone");
         return None;
     }
-    match rx.recv_timeout(LAYOUT_SWITCH_TIMEOUT) {
-        Ok(true) => Some(wanted),
-        Ok(false) => {
-            log::debug!("layout {wanted} did not become active; not replaying key presses");
-            None
+
+    // Selection is asynchronous, so confirm it before replaying key presses
+    // against it. The waiting happens here, on the injector thread — sleeping
+    // on the main thread would stall the UI and, worse, the event tap, which
+    // macOS switches off when it is starved.
+    for _ in 0..LAYOUT_SETTLE_STEPS {
+        let active = run_on_main(handle, {
+            let layout = layout.to_string();
+            move || platform::current_layout().as_deref() == Some(layout.as_str())
+        })?;
+        if active {
+            return Some(layout.to_string());
         }
-        Err(_) => None,
+        std::thread::sleep(LAYOUT_SETTLE_STEP);
     }
+
+    log::warn!("layout {layout} did not become active; not replaying key presses");
+    None
+}
+
+/// Run `f` on the main thread and wait for its result.
+///
+/// Text Input Services and AppKit are main-thread-only, so every query about
+/// the keyboard has to go through here. Each hop is short by design.
+fn run_on_main<T, F>(handle: &AppHandle, f: F) -> Option<T>
+where
+    T: Send + 'static,
+    F: FnOnce() -> T + Send + 'static,
+{
+    let (tx, rx) = mpsc::channel();
+    handle
+        .run_on_main_thread(move || {
+            let _ = tx.send(f());
+        })
+        .ok()?;
+    rx.recv_timeout(LAYOUT_SWITCH_TIMEOUT).ok()
 }
 
 /// Start the thread that applies corrections, and return its inbox.

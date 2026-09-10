@@ -28,6 +28,9 @@ use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
 use core_graphics::sys::CGEventRef;
 use foreign_types::ForeignType;
 use std::ffi::c_void;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
 
 /// Marker written into the `USER_DATA` field of every event Rekey synthesises,
 /// so the tap can recognise its own typing and ignore it. Without this the app
@@ -45,6 +48,9 @@ unsafe extern "C" {
 
 #[link(name = "CoreGraphics", kind = "framework")]
 unsafe extern "C" {
+    /// Re-arms an event tap that the system has switched off.
+    fn CGEventTapEnable(tap: *mut c_void, enable: bool);
+
     /// Reads the characters a key event resolves to on the active layout.
     /// `core-graphics` exposes the setter but not the getter.
     fn CGEventKeyboardGetUnicodeString(
@@ -262,10 +268,14 @@ impl MacInjector {
     }
 
     fn post(&self, event: CGEvent) {
-        event.set_integer_value_field(EventField::EVENT_SOURCE_USER_DATA, REKEY_SIGNATURE);
         // Belt and braces with the private source above: whatever the user is
         // holding, Rekey's own keystrokes carry no modifiers.
         event.set_flags(CGEventFlags::empty());
+        // The signature must be stamped *after* the flags. Setting flags
+        // clears the event's user-data field, and without the signature Rekey
+        // stops recognising its own keystrokes — so it reacts to its own
+        // corrections and types over them.
+        event.set_integer_value_field(EventField::EVENT_SOURCE_USER_DATA, REKEY_SIGNATURE);
         event.post(CGEventTapLocation::HID);
     }
 
@@ -276,8 +286,19 @@ impl MacInjector {
                 self.post(event);
             }
         }
+        std::thread::sleep(KEYSTROKE_GAP);
     }
 }
+
+/// Pause between injected keystrokes.
+///
+/// Synthetic events posted back to back are not always all delivered: the
+/// receiving application can drop or coalesce them, which shows up as a
+/// replacement that deleted one character too few and left a stray letter
+/// behind. A real keyboard never produces keystrokes this close together, and
+/// a few milliseconds each is imperceptible against the 25ms Rekey already
+/// waits before replacing.
+const KEYSTROKE_GAP: Duration = Duration::from_millis(4);
 
 /// Virtual keycodes macOS uses for the keys the layout tables do not cover.
 const VK_DELETE: u16 = 51;
@@ -306,14 +327,16 @@ impl MacInjector {
             let Ok(event) = CGEvent::new_keyboard_event(self.source.clone(), keycode, down) else {
                 return;
             };
-            event.set_integer_value_field(EventField::EVENT_SOURCE_USER_DATA, REKEY_SIGNATURE);
             event.set_flags(if shift {
                 CGEventFlags::CGEventFlagShift
             } else {
                 CGEventFlags::empty()
             });
+            // After the flags, never before: see `post`.
+            event.set_integer_value_field(EventField::EVENT_SOURCE_USER_DATA, REKEY_SIGNATURE);
             event.post(CGEventTapLocation::HID);
         }
+        std::thread::sleep(KEYSTROKE_GAP);
     }
 }
 
@@ -364,6 +387,7 @@ impl Injector for MacInjector {
                 event.set_string(&encoded);
                 self.post(event);
             }
+            std::thread::sleep(KEYSTROKE_GAP);
         }
     }
 }
@@ -417,14 +441,25 @@ fn classify(keycode: u16, character: Option<char>) -> Key {
         53 => Key::Escape,
         // Arrows, and the Home/End/PageUp/PageDown cluster.
         123..=126 | 115 | 116 | 119 | 121 => Key::Navigation,
-        // Fall back to what the key actually produced. Not every space arrives
-        // as keycode 49: input methods, remapped layouts and synthetic input
-        // can deliver whitespace on other keys, and a word boundary Rekey does
-        // not recognise is a word it never evaluates.
+        // Modifier keys: command, shift, caps lock, option, control, fn.
+        //
+        // These must be named explicitly. They normally arrive as flags
+        // changes, but when one does arrive as a key event its reported
+        // character is a space — so the whitespace fallback below would read a
+        // press of Option or Shift as the end of a word, ending it early and
+        // disarming the manual shortcut a moment before it is released.
+        54..=63 => Key::ModifiersChanged,
+        // Otherwise go by what the key produced — but never infer a word
+        // boundary from the character alone.
+        //
+        // Whitespace is identified by key code above, because that is what a
+        // keyboard sends. Modifier and other non-typing events can report a
+        // space as their character, and reading those as a boundary ends the
+        // word the user is in the middle of typing. Anything that claims to be
+        // whitespace without the matching key is treated as "something else
+        // happened", which is the safe reading.
         _ => match character {
-            Some(' ') => Key::Space,
-            Some('\t') => Key::Tab,
-            Some('\r') | Some('\n') => Key::Enter,
+            Some(c) if c.is_whitespace() => Key::Other,
             Some(c) if !c.is_control() => Key::Character,
             _ => Key::Other,
         },
@@ -448,6 +483,11 @@ where
     // uncontended and exists purely to satisfy the signature.
     let on_key = std::sync::Mutex::new(on_key);
 
+    // The tap's own port, so the callback can switch it back on. It is filled
+    // in immediately after creation; until then the callback cannot fire.
+    let tap_port: Arc<AtomicUsize> = Arc::new(AtomicUsize::new(0));
+    let callback_port = tap_port.clone();
+
     let tap = CGEventTap::new(
         CGEventTapLocation::Session,
         CGEventTapPlacement::HeadInsertEventTap,
@@ -455,27 +495,70 @@ where
         CGEventTapOptions::ListenOnly,
         vec![CGEventType::KeyDown, CGEventType::FlagsChanged],
         move |_proxy, event_type, event| {
-            if matches!(event_type, CGEventType::KeyDown) {
-                let synthetic = event.get_integer_value_field(EventField::EVENT_SOURCE_USER_DATA)
-                    == REKEY_SIGNATURE;
-                let keycode =
-                    event.get_integer_value_field(EventField::KEYBOARD_EVENT_KEYCODE) as u16;
-                let character = event_character(event);
-                if let Ok(mut handler) = on_key.lock() {
-                    handler(KeyEvent {
+            // macOS switches a tap off if its callback is ever too slow, or if
+            // the user's own input trips the watchdog, and it stays off until
+            // explicitly re-armed. Without this Rekey goes quietly deaf
+            // part-way through a session, and every symptom after that looks
+            // like a detection bug instead of a dead hook.
+            if matches!(
+                event_type,
+                CGEventType::TapDisabledByTimeout | CGEventType::TapDisabledByUserInput
+            ) {
+                let port = callback_port.load(Ordering::Relaxed);
+                if port != 0 {
+                    log::warn!("keyboard tap was disabled by the system; re-arming");
+                    unsafe { CGEventTapEnable(port as *mut c_void, true) };
+                }
+                return CallbackResult::Keep;
+            }
+
+            let synthetic = event.get_integer_value_field(EventField::EVENT_SOURCE_USER_DATA)
+                == REKEY_SIGNATURE;
+
+            let key_event = match event_type {
+                CGEventType::KeyDown => {
+                    let keycode =
+                        event.get_integer_value_field(EventField::KEYBOARD_EVENT_KEYCODE) as u16;
+                    let character = event_character(event);
+                    if !synthetic {
+                        log::trace!("keydown code={keycode} char={character:?}");
+                    }
+                    Some(KeyEvent {
                         character,
                         key: classify(keycode, character),
                         modifiers: modifiers_of(event),
                         synthetic,
-                    });
+                    })
+                }
+                // A modifier on its own arrives as a flags change, never as a
+                // key press. Tapping one is how the manual "cycle the last
+                // word" shortcut is triggered, so the engine has to see these.
+                CGEventType::FlagsChanged => Some(KeyEvent {
+                    character: None,
+                    key: Key::ModifiersChanged,
+                    modifiers: modifiers_of(event),
+                    synthetic,
+                }),
+                _ => None,
+            };
+
+            if let Some(key_event) = key_event {
+                if let Ok(mut handler) = on_key.lock() {
+                    handler(key_event);
                 }
             }
+
             // Listen-only: every keystroke continues to its destination
             // untouched. Rekey corrects afterwards, it never intercepts.
             CallbackResult::Keep
         },
     )
     .map_err(|_| HookError::PermissionDenied)?;
+
+    tap_port.store(
+        tap.mach_port().as_concrete_TypeRef() as usize,
+        Ordering::Relaxed,
+    );
 
     let loop_source = tap
         .mach_port()
@@ -570,13 +653,31 @@ mod tests {
     }
 
     #[test]
-    fn whitespace_ends_a_word_whatever_key_produced_it() {
-        // A space that does not arrive as keycode 49 must still end the word,
-        // or the word is never evaluated and nothing is ever corrected.
-        assert_eq!(classify(0, Some(' ')), Key::Space);
-        assert_eq!(classify(0, Some('\t')), Key::Tab);
-        assert_eq!(classify(0, Some('\n')), Key::Enter);
-        assert_eq!(classify(0, Some('\r')), Key::Enter);
+    fn modifier_keys_are_never_mistaken_for_whitespace() {
+        // macOS reports a space as the character for modifier key events, so
+        // without an explicit case these end the word the user is typing.
+        for keycode in 54..=63 {
+            assert_eq!(
+                classify(keycode, Some(' ')),
+                Key::ModifiersChanged,
+                "key code {keycode} should be a modifier, not a space"
+            );
+        }
+    }
+
+    #[test]
+    fn whitespace_is_recognised_by_key_not_by_character() {
+        // Keyboards send whitespace on its own key code …
+        assert_eq!(classify(49, Some(' ')), Key::Space);
+        assert_eq!(classify(48, Some('\t')), Key::Tab);
+        assert_eq!(classify(36, Some('\r')), Key::Enter);
+
+        // … and anything else claiming to be a space is not a word boundary.
+        // Modifier and other non-typing events report a space as their
+        // character, and treating those as boundaries ends the word the user
+        // is still typing — and disarms the manual shortcut a moment before
+        // it fires.
+        assert_eq!(classify(0, Some(' ')), Key::Other);
     }
 
     #[test]
