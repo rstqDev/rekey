@@ -4,7 +4,9 @@
 // Rust, and every change sends the whole config back. Keeping one source of
 // truth on the Rust side avoids the UI and the engine drifting apart.
 
-const invoke = window.__TAURI__.core.invoke;
+// Provided by Tauri (`withGlobalTauri`), or by dev-mock.js on a dev server.
+const bridge = window.__TAURI__;
+const invoke = bridge?.core?.invoke;
 
 const SENSITIVITY_HINTS = {
   cautious: "Only acts on overwhelming evidence. Rarely wrong, misses more.",
@@ -216,4 +218,14 @@ setInterval(() => {
   if (!document.hidden && state) pollLiveFields();
 }, 2500);
 
-refresh();
+if (!invoke) {
+  // Never fall back to plausible-looking placeholder data: an app that reads
+  // your keyboard has to be honest about not working.
+  document.body.innerHTML =
+    '<div class="notice notice-error" style="margin:20px">' +
+    "<p><strong>Rekey could not reach its backend.</strong> " +
+    "The settings window cannot show or change anything. " +
+    "Please reinstall Rekey and report this.</p></div>";
+} else {
+  refresh();
+}

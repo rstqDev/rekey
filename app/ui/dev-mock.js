@@ -6,7 +6,22 @@
 // the Rust side. The responses mirror the shapes returned by the `#[tauri::command]`
 // functions in src/main.rs; if you change one there, change it here too.
 
-if (!window.__TAURI__) {
+/**
+ * True only for a plain dev server on localhost.
+ *
+ * Tauri serves the UI from `tauri://localhost` on macOS and
+ * `http://tauri.localhost` on Windows, so neither matches. Checking merely
+ * that `window.__TAURI__` is missing is not enough: if the bridge ever fails
+ * to inject, the app would quietly show invented statistics instead of
+ * failing, which is far worse than showing nothing.
+ */
+function isLocalDevServer() {
+  const httpish = location.protocol === "http:" || location.protocol === "https:";
+  const local = location.hostname === "localhost" || location.hostname === "127.0.0.1";
+  return httpish && local;
+}
+
+if (!window.__TAURI__ && isLocalDevServer()) {
   const LAYOUTS = [
     ["us", "English (US QWERTY)", "en", false],
     ["ru", "Russian (ЙЦУКЕН)", "ru", false],
