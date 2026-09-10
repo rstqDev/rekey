@@ -15,6 +15,7 @@
 //!   which is the other half of every decision the detector makes.
 
 use crate::{Context, HookError, Injector, Key, KeyEvent, Modifiers};
+use core_foundation::array::{CFArrayGetCount, CFArrayGetValueAtIndex, CFArrayRef};
 use core_foundation::base::{CFRelease, TCFType};
 use core_foundation::dictionary::CFDictionary;
 use core_foundation::runloop::{kCFRunLoopCommonModes, CFRunLoop};
@@ -58,6 +59,8 @@ unsafe extern "C" {
 unsafe extern "C" {
     fn TISCopyCurrentKeyboardLayoutInputSource() -> *mut c_void;
     fn TISGetInputSourceProperty(source: *mut c_void, key: CFStringRef) -> *mut c_void;
+    fn TISCreateInputSourceList(properties: *const c_void, include_all: bool) -> CFArrayRef;
+    fn TISSelectInputSource(source: *mut c_void) -> i32;
     static kTISPropertyInputSourceID: CFStringRef;
     fn IsSecureEventInputEnabled() -> bool;
 }
@@ -155,6 +158,50 @@ pub fn current_layout() -> Option<String> {
         };
         CFRelease(source as *const c_void);
         result
+    }
+}
+
+/// Switch the system keyboard to the layout Rekey just corrected into.
+///
+/// Correcting `ghbdtn` to `привет` without this leaves the user still on the
+/// English layout, so the very next word they type is wrong again. Fixing the
+/// text but not the layout solves half the problem.
+///
+/// # Must be called on the main thread
+///
+/// Same Text Input Services constraint as [`current_layout`].
+///
+/// Returns true when the layout was found among the user's enabled input
+/// sources and selected. A layout the user has not enabled is not an error:
+/// Rekey simply leaves the keyboard alone.
+pub fn select_layout(layout_id: &str) -> bool {
+    unsafe {
+        // A null filter returns the input sources the user has actually
+        // enabled, which is what we want: never switch to a layout they have
+        // not installed.
+        let list = TISCreateInputSourceList(std::ptr::null(), false);
+        if list.is_null() {
+            return false;
+        }
+        let mut selected = false;
+        let count = CFArrayGetCount(list);
+        for i in 0..count {
+            let source = CFArrayGetValueAtIndex(list, i) as *mut c_void;
+            if source.is_null() {
+                continue;
+            }
+            let id_ref = TISGetInputSourceProperty(source, kTISPropertyInputSourceID);
+            if id_ref.is_null() {
+                continue;
+            }
+            let id = CFString::wrap_under_get_rule(id_ref as CFStringRef).to_string();
+            if layout_from_input_source(&id) == Some(layout_id) {
+                selected = TISSelectInputSource(source) == 0;
+                break;
+            }
+        }
+        CFRelease(list as *const c_void);
+        selected
     }
 }
 

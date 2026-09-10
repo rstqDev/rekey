@@ -48,6 +48,11 @@ pub fn has_permission() -> bool {
     false
 }
 
+/// No keyboard to switch on an unsupported platform.
+pub fn select_layout(_layout_id: &str) -> bool {
+    false
+}
+
 pub fn request_permission() {}
 
 pub fn run<F>(_on_key: F) -> Result<(), HookError>

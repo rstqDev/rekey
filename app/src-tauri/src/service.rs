@@ -94,7 +94,7 @@ pub fn spawn(
     spawn_context_sampler(app, context.clone());
 
     let injector: Arc<dyn TextWriter> = Arc::new(new_injector()?);
-    let replacements = spawn_injector(injector)?;
+    let replacements = spawn_injector(app, injector)?;
 
     std::thread::Builder::new()
         .name("rekey-hook".into())
@@ -145,14 +145,31 @@ pub fn spawn(
 /// Injection is deliberately off the tap callback: it keeps the callback fast
 /// enough that macOS will not disable the tap, and it lets the keystroke that
 /// triggered the correction land before the correction is typed.
-fn spawn_injector(injector: Arc<dyn TextWriter>) -> Result<Sender<Action>, rekey_hook::HookError> {
+fn spawn_injector(
+    app: &AppHandle,
+    injector: Arc<dyn TextWriter>,
+) -> Result<Sender<Action>, rekey_hook::HookError> {
     let (tx, rx) = mpsc::channel::<Action>();
+    let handle = app.clone();
     std::thread::Builder::new()
         .name("rekey-inject".into())
         .spawn(move || {
             for action in rx {
                 std::thread::sleep(REPLACE_DELAY);
                 action.apply(injector.as_ref());
+
+                // Switching the keyboard is the other half of a correction:
+                // without it the user is still on the wrong layout and the
+                // next word comes out wrong too. Text Input Services is
+                // main-thread-only, so this hops threads like the sampler.
+                if let Some(layout) = action.layout_switch() {
+                    let layout = layout.to_string();
+                    let _ = handle.run_on_main_thread(move || {
+                        if !platform::select_layout(&layout) {
+                            log::debug!("layout {layout} is not enabled; keyboard left alone");
+                        }
+                    });
+                }
             }
         })
         .map_err(|e| rekey_hook::HookError::Os(e.to_string()))?;

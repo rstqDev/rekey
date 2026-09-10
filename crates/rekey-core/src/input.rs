@@ -25,6 +25,9 @@ pub enum Key {
     Escape,
     /// Arrows, Home/End, PageUp/Down — anything that moves the caret.
     Navigation,
+    /// A modifier was pressed or released and nothing else happened. Tapping
+    /// one is how the manual "cycle the last word" shortcut is triggered.
+    ModifiersChanged,
     Other,
 }
 

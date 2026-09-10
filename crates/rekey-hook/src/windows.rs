@@ -18,8 +18,8 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetKeyState, GetKeyboardLayout, GetKeyboardState, MapVirtualKeyW, SendInput, ToUnicodeEx,
     INPUT, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE,
     MAPVK_VK_TO_VSC, VIRTUAL_KEY, VK_BACK, VK_CONTROL, VK_DOWN, VK_END, VK_ESCAPE, VK_HOME,
-    VK_LEFT, VK_LWIN, VK_MENU, VK_NEXT, VK_PRIOR, VK_RETURN, VK_RIGHT, VK_RWIN, VK_SHIFT, VK_SPACE,
-    VK_TAB, VK_UP,
+    VK_LEFT, VK_LMENU, VK_LWIN, VK_MENU, VK_NEXT, VK_PRIOR, VK_RETURN, VK_RIGHT, VK_RMENU, VK_RWIN,
+    VK_SHIFT, VK_SPACE, VK_TAB, VK_UP,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, DispatchMessageW, GetForegroundWindow, GetMessageW, GetWindowThreadProcessId,
@@ -87,6 +87,49 @@ pub fn current_layout() -> Option<String> {
         let hkl = GetKeyboardLayout(thread);
         let langid = (hkl.0 as usize & 0xFFFF) as u16;
         layout_from_langid(langid).map(|s| s.to_string())
+    }
+}
+
+/// Switch the foreground window's keyboard to `layout_id`.
+///
+/// Correcting the text but leaving the keyboard alone means the next word is
+/// wrong again, so this is the other half of a correction.
+///
+/// Windows keeps the layout per-thread, so the request is posted to the window
+/// that actually has focus rather than changed globally.
+pub fn select_layout(layout_id: &str) -> bool {
+    use windows::core::PCWSTR;
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        ActivateKeyboardLayout, LoadKeyboardLayoutW, ACTIVATE_KEYBOARD_LAYOUT_FLAGS,
+        KLF_SETFORPROCESS,
+    };
+
+    let Some(langid) = LAYOUT_IDS
+        .iter()
+        .find(|(_, id)| *id == layout_id)
+        .map(|(langid, _)| *langid)
+    else {
+        return false;
+    };
+
+    // Keyboard layout identifiers are the language id as eight hex digits.
+    let name: Vec<u16> = format!("{:08x}", langid)
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
+
+    unsafe {
+        let Ok(hkl) = LoadKeyboardLayoutW(PCWSTR(name.as_ptr()), ACTIVATE_KEYBOARD_LAYOUT_FLAGS(0))
+        else {
+            return false;
+        };
+        if hkl.0.is_null() {
+            return false;
+        }
+        match ActivateKeyboardLayout(hkl, KLF_SETFORPROCESS) {
+            Ok(previous) => !previous.0.is_null(),
+            Err(_) => false,
+        }
     }
 }
 
@@ -236,6 +279,11 @@ fn modifiers_now() -> Modifiers {
 
 fn classify(vk: VIRTUAL_KEY, character: Option<char>) -> Key {
     match vk {
+        // A modifier on its own. Tapping one triggers the manual
+        // "cycle the last word" shortcut.
+        VK_MENU | VK_LMENU | VK_RMENU | VK_SHIFT | VK_CONTROL | VK_LWIN | VK_RWIN => {
+            Key::ModifiersChanged
+        }
         VK_BACK => Key::Backspace,
         VK_SPACE => Key::Space,
         VK_RETURN => Key::Enter,
@@ -351,6 +399,13 @@ mod tests {
     fn unknown_langids_are_not_guessed() {
         assert_eq!(layout_from_langid(0x0411), None); // Japanese
         assert_eq!(layout_from_langid(0x0404), None); // Chinese (Traditional)
+    }
+
+    #[test]
+    fn classifies_modifier_keys_as_modifier_changes() {
+        assert_eq!(classify(VK_MENU, None), Key::ModifiersChanged);
+        assert_eq!(classify(VK_LMENU, None), Key::ModifiersChanged);
+        assert_eq!(classify(VK_SHIFT, None), Key::ModifiersChanged);
     }
 
     #[test]

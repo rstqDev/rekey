@@ -5,11 +5,13 @@
 //! decides whether it is safe to act right now. "Safe" does most of the work —
 //! the right answer typed into a password field is still a bug.
 
-use crate::buffer::{Buffer, Input, LastCorrection};
+use crate::buffer::{Buffer, Input};
 use crate::config::Config;
 use crate::detect::{Detector, Verdict};
-use crate::input::{Context, Key, KeyEvent, TextWriter};
+use crate::input::{Context, Key, KeyEvent, Modifiers, TextWriter};
+use crate::layout;
 use crate::model::Models;
+use std::time::{Duration, Instant};
 
 /// What the engine wants done to the text the user is typing.
 #[derive(Debug, Clone, PartialEq)]
@@ -17,13 +19,31 @@ pub enum Action {
     /// Leave everything alone.
     None,
     /// Delete `delete` characters and type `text` in their place.
-    Replace { delete: usize, text: String },
+    Replace {
+        delete: usize,
+        text: String,
+        /// The layout the corrected text belongs to, when it differs from the
+        /// one in use.
+        ///
+        /// Rewriting `ghbdtn` to `привет` while leaving the keyboard on
+        /// English fixes the word and leaves the user to make the same mistake
+        /// on the next one. Switching the layout is the other half of the fix.
+        switch_to: Option<String>,
+    },
 }
 
 impl Action {
     pub fn apply(&self, writer: &dyn TextWriter) {
-        if let Action::Replace { delete, text } = self {
+        if let Action::Replace { delete, text, .. } = self {
             writer.replace(*delete, text);
+        }
+    }
+
+    /// The layout the system keyboard should move to, if any.
+    pub fn layout_switch(&self) -> Option<&str> {
+        match self {
+            Action::Replace { switch_to, .. } => switch_to.as_deref(),
+            Action::None => None,
         }
     }
 }
@@ -35,11 +55,57 @@ pub struct Stats {
     pub undos: u64,
 }
 
+/// A modifier tap counts as a shortcut only if nothing else happened while it
+/// was held, and it was not held for long.
+const MODIFIER_TAP_WINDOW: Duration = Duration::from_millis(600);
+
+/// The last finished word, in every reading Rekey knows for it.
+///
+/// This is what makes the manual shortcut feel right. Rekey's guess is only a
+/// guess, so the user needs to be able to say "no, the other one" — repeatedly,
+/// without thinking about which layouts are involved. Keeping every rendering
+/// of the word and an index into them turns that into one repeatable keystroke.
+#[derive(Debug, Clone, PartialEq)]
+struct WordCycle {
+    /// Every reading. Index 0 is always exactly what the user typed.
+    variants: Vec<String>,
+    /// The layout each variant belongs to, parallel to `variants`.
+    layouts: Vec<String>,
+    /// Which variant is on screen now.
+    index: usize,
+    terminator: Option<char>,
+    /// True when Rekey picked the current variant rather than the user.
+    auto: bool,
+}
+
+impl WordCycle {
+    fn current(&self) -> &str {
+        &self.variants[self.index]
+    }
+
+    /// Characters to delete to remove what is currently on screen.
+    fn on_screen_len(&self) -> usize {
+        self.current().chars().count() + usize::from(self.terminator.is_some())
+    }
+
+    fn text_with_terminator(&self, index: usize) -> String {
+        let mut out = self.variants[index].clone();
+        if let Some(t) = self.terminator {
+            out.push(t);
+        }
+        out
+    }
+}
+
 pub struct Engine {
     pub detector: Detector,
     buffer: Buffer,
-    last_correction: Option<LastCorrection>,
+    /// The last completed word, ready to be cycled by the shortcut.
+    last_word: Option<WordCycle>,
     last_context: Option<(Option<String>, Option<String>)>,
+    /// When a modifier went down with nothing else pressed since.
+    modifier_down_at: Option<Instant>,
+    alt_was_down: bool,
     stats: Stats,
 }
 
@@ -48,8 +114,10 @@ impl Engine {
         Engine {
             detector: Detector::new(models, config),
             buffer: Buffer::new(),
-            last_correction: None,
+            last_word: None,
             last_context: None,
+            modifier_down_at: None,
+            alt_was_down: false,
             stats: Stats::default(),
         }
     }
@@ -86,7 +154,7 @@ impl Engine {
             .is_some_and(|prev| *prev != context_key)
         {
             self.buffer.push(Input::Reset);
-            self.last_correction = None;
+            self.last_word = None;
         }
         self.last_context = Some(context_key);
 
@@ -104,6 +172,17 @@ impl Engine {
                 return Action::None;
             }
         }
+        // A modifier tapped on its own is the manual shortcut. It types
+        // nothing, so it is safe to overload; holding it to type an accented
+        // character does not count, because that is a key press in between.
+        //
+        // This has to come before the chord guard below. ⌥⌘ is a shortcut and
+        // would return there, leaving the tap still armed — so releasing
+        // Option afterwards would fire and rewrite the user's text.
+        if event.key == Key::ModifiersChanged {
+            return self.on_modifier_change(event.modifiers);
+        }
+
         // Ctrl/Cmd chords are commands, not typing, and they usually move the
         // caret as a side effect.
         if event.modifiers.is_shortcut() {
@@ -111,9 +190,11 @@ impl Engine {
             return Action::None;
         }
 
+        self.modifier_down_at = None;
+
         let input = match event.key {
             Key::Backspace => Input::Backspace,
-            Key::Navigation | Key::Escape | Key::Other => Input::Reset,
+            Key::Navigation | Key::Escape | Key::Other | Key::ModifiersChanged => Input::Reset,
             // Only whitespace ends a word. Punctuation cannot: `,` and `.` are
             // the Cyrillic letters б and ю, so treating them as boundaries
             // would chop the very words this app exists to fix.
@@ -142,10 +223,17 @@ impl Engine {
     fn consider(&mut self, text: &str, terminator: Option<char>, active: &str) -> Action {
         let (prefix, core, suffix) = self.detector.trim_affixes(text, active);
         if core.is_empty() {
+            self.last_word = None;
             return Action::None;
         }
 
-        let Verdict::Switch(candidate) = self.detector.evaluate(core, active) else {
+        let cycle = self.build_cycle(text, prefix, core, suffix, terminator, active);
+        let verdict = self.detector.evaluate(core, active);
+
+        let Verdict::Switch(candidate) = verdict else {
+            // Nothing to do now, but remember the word so the shortcut can
+            // still convert it if Rekey guessed wrong by staying quiet.
+            self.last_word = cycle;
             return Action::None;
         };
 
@@ -154,39 +242,179 @@ impl Engine {
         if let Some(t) = terminator {
             replacement.push(t);
         }
-
         let delete = text.chars().count() + usize::from(terminator.is_some());
-        self.last_correction = Some(LastCorrection {
-            original: text.to_string(),
-            corrected,
-            terminator,
-        });
+
+        if let Some(mut cycle) = cycle {
+            cycle.index = cycle
+                .variants
+                .iter()
+                .position(|v| *v == corrected)
+                .unwrap_or(0);
+            cycle.auto = true;
+            self.last_word = Some(cycle);
+        }
         self.stats.corrections += 1;
 
         Action::Replace {
             delete,
             text: replacement,
+            switch_to: Some(candidate.to_layout.to_string()),
         }
     }
 
-    /// Undo the most recent automatic correction. Backs the undo hotkey.
-    pub fn undo(&mut self) -> Action {
-        let Some(last) = self.last_correction.take() else {
+    /// Every reading of `text`, so the shortcut has somewhere to cycle to.
+    fn build_cycle(
+        &self,
+        text: &str,
+        prefix: &str,
+        core: &str,
+        suffix: &str,
+        terminator: Option<char>,
+        active: &str,
+    ) -> Option<WordCycle> {
+        let from = layout::layout(active)?;
+        let mut variants = vec![text.to_string()];
+        let mut layouts = vec![active.to_string()];
+
+        for alt in self.detector.config.alternatives(active) {
+            let Some(to) = layout::layout(alt) else {
+                continue;
+            };
+            let rendered = format!("{prefix}{}{suffix}", layout::convert(core, from, to));
+            // Layouts that render the word identically add nothing to cycle
+            // through, and would make the shortcut appear to do nothing.
+            if variants.contains(&rendered) {
+                continue;
+            }
+            variants.push(rendered);
+            layouts.push(alt.to_string());
+        }
+
+        if variants.len() < 2 {
+            return None;
+        }
+        Some(WordCycle {
+            variants,
+            layouts,
+            index: 0,
+            terminator,
+            auto: false,
+        })
+    }
+
+    /// Handle a modifier going down or coming up.
+    ///
+    /// Only Option *alone* counts. Option as part of a chord — ⌥⌘, ⌥⇧ — is
+    /// someone reaching for a shortcut in the app they are using, and firing
+    /// on that would make Rekey rewrite text at random moments.
+    fn on_modifier_change(&mut self, modifiers: Modifiers) -> Action {
+        let alt_down = modifiers.alt;
+        let others_held = modifiers.shift || modifiers.control || modifiers.meta;
+        let was_down = std::mem::replace(&mut self.alt_was_down, alt_down);
+
+        if others_held {
+            // Some other modifier joined in; this is a chord, not a tap.
+            self.modifier_down_at = None;
+            return Action::None;
+        }
+
+        match (was_down, alt_down) {
+            // Pressed on its own: start timing.
+            (false, true) => {
+                self.modifier_down_at = Some(Instant::now());
+                Action::None
+            }
+            // Released: a tap if nothing intervened and it was brief.
+            (true, false) => match self.modifier_down_at.take() {
+                Some(at) if at.elapsed() <= MODIFIER_TAP_WINDOW => self.cycle_last_word(),
+                _ => Action::None,
+            },
+            _ => Action::None,
+        }
+    }
+
+    /// Move the last word to its next reading. Backs the manual shortcut.
+    ///
+    /// Cycling rather than a one-shot undo is deliberate: with three layouts
+    /// enabled the first alternative is often not the right one, and the user
+    /// should not have to know that. Tapping again keeps going, and coming
+    /// back round to what they originally typed is treated as a correction of
+    /// Rekey rather than of themselves.
+    pub fn cycle_last_word(&mut self) -> Action {
+        let Some(cycle) = self.last_word.as_mut() else {
             return Action::None;
         };
-        self.stats.undos += 1;
-        // The user disagreed with us about this word; remember that, so the
-        // same correction is not offered again.
-        let word = last.original.to_lowercase();
-        if !self.detector.config.exceptions.contains(&word) {
-            self.detector.config.exceptions.push(word);
+        let delete = cycle.on_screen_len();
+        let next = (cycle.index + 1) % cycle.variants.len();
+        cycle.index = next;
+
+        let text = cycle.text_with_terminator(next);
+        let switch_to = cycle.layouts.get(next).cloned();
+        let returned_to_original = next == 0;
+        let was_auto = cycle.auto;
+        let original = cycle.variants[0].clone();
+        cycle.auto = false;
+
+        if returned_to_original && was_auto {
+            // Rekey changed this word and the user has just changed it back.
+            // Take the hint and leave that word alone in future.
+            self.stats.undos += 1;
+            self.learn_exception(&original);
         }
-        let action = Action::Replace {
-            delete: last.chars_to_delete(),
-            text: last.restore_text(),
-        };
+
+        // The buffer's idea of what is behind the caret no longer holds.
         self.buffer.push(Input::Reset);
-        action
+        Action::Replace {
+            delete,
+            text,
+            switch_to,
+        }
+    }
+
+    /// Remember that the user prefers this word exactly as they typed it.
+    fn learn_exception(&mut self, word: &str) {
+        let trimmed: String = word
+            .chars()
+            .filter(|c| c.is_alphabetic() || !c.is_ascii_punctuation())
+            .collect();
+        let key = if trimmed.is_empty() { word } else { &trimmed }.to_lowercase();
+        if !key.is_empty() && !self.detector.config.exceptions.contains(&key) {
+            self.detector.config.exceptions.push(key);
+        }
+    }
+
+    /// Undo the most recent automatic correction.
+    ///
+    /// Kept as an explicit menu action; it is the same operation as one step of
+    /// [`Engine::cycle_last_word`], which is what the keyboard shortcut uses.
+    pub fn undo(&mut self) -> Action {
+        let Some(cycle) = self.last_word.as_ref() else {
+            return Action::None;
+        };
+        if cycle.index == 0 {
+            return Action::None;
+        }
+        // Step straight back to what the user typed.
+        let delete = cycle.on_screen_len();
+        let text = cycle.text_with_terminator(0);
+        let switch_to = cycle.layouts.first().cloned();
+        let original = cycle.variants[0].clone();
+        let was_auto = cycle.auto;
+
+        if let Some(c) = self.last_word.as_mut() {
+            c.index = 0;
+            c.auto = false;
+        }
+        if was_auto {
+            self.stats.undos += 1;
+            self.learn_exception(&original);
+        }
+        self.buffer.push(Input::Reset);
+        Action::Replace {
+            delete,
+            text,
+            switch_to,
+        }
     }
 
     /// Force a conversion of the word being typed, ignoring every threshold.
@@ -201,15 +429,11 @@ impl Engine {
         let Some(converted) = self.detector.force_convert(&word.text, active, target) else {
             return Action::None;
         };
-        self.last_correction = Some(LastCorrection {
-            original: word.text.clone(),
-            corrected: converted.clone(),
-            terminator: None,
-        });
         self.stats.corrections += 1;
         Action::Replace {
             delete: word.text.chars().count(),
             text: converted,
+            switch_to: Some(target.to_string()),
         }
     }
 }
@@ -234,6 +458,33 @@ mod tests {
             key: k,
             modifiers: Modifiers::default(),
             synthetic: false,
+        }
+    }
+
+    /// A modifier-change event with Option held or released.
+    fn alt(down: bool) -> KeyEvent {
+        KeyEvent {
+            character: None,
+            key: Key::ModifiersChanged,
+            modifiers: Modifiers {
+                alt: down,
+                ..Default::default()
+            },
+            synthetic: false,
+        }
+    }
+
+    /// Tap Option: press and release with nothing in between.
+    fn tap_alt(e: &mut Engine, layout: &str) -> Action {
+        let c = ctx(layout);
+        e.on_key(&alt(true), &c);
+        e.on_key(&alt(false), &c)
+    }
+
+    fn replaced_text(action: &Action) -> &str {
+        match action {
+            Action::Replace { text, .. } => text,
+            Action::None => panic!("expected a replacement, got Action::None"),
         }
     }
 
@@ -284,7 +535,8 @@ mod tests {
             action,
             Action::Replace {
                 delete: 7,
-                text: "привет ".into()
+                text: "привет ".into(),
+                switch_to: Some("ru".into()),
             }
         );
         assert_eq!(e.stats().corrections, 1);
@@ -306,7 +558,8 @@ mod tests {
             action,
             Action::Replace {
                 delete: 8,
-                text: "привет! ".into()
+                text: "привет! ".into(),
+                switch_to: Some("ru".into()),
             }
         );
     }
@@ -421,7 +674,8 @@ mod tests {
             undo,
             Action::Replace {
                 delete: 7,
-                text: "ghbdtn ".into()
+                text: "ghbdtn ".into(),
+                switch_to: Some("us".into()),
             }
         );
         assert_eq!(e.stats().undos, 1);
@@ -443,12 +697,128 @@ mod tests {
             e.on_key(&key(ch), &ctx("us"));
         }
         match e.force_convert("us") {
-            Action::Replace { delete, text } => {
+            Action::Replace { delete, text, .. } => {
                 assert_eq!(delete, 2);
                 assert_eq!(text, "йч");
             }
             Action::None => panic!("manual conversion should always act"),
         }
+    }
+
+    #[test]
+    fn a_correction_also_asks_for_the_layout_to_switch() {
+        // Fixing the word but leaving the keyboard on English means the very
+        // next word is wrong again.
+        let mut e = engine();
+        let action = type_str(&mut e, "ghbdtn ", "us");
+        assert_eq!(action.layout_switch(), Some("ru"));
+    }
+
+    #[test]
+    fn tapping_option_cycles_the_last_word() {
+        let mut e = engine();
+        // A word Rekey leaves alone, because it is real English.
+        assert_eq!(type_str(&mut e, "hello ", "us"), Action::None);
+
+        // One tap converts it anyway; that is the point of the shortcut.
+        let first = tap_alt(&mut e, "us");
+        assert_eq!(replaced_text(&first), "руддщ ");
+        assert_eq!(first.layout_switch(), Some("ru"));
+
+        // Another tap comes back round to exactly what was typed.
+        let second = tap_alt(&mut e, "us");
+        assert_eq!(replaced_text(&second), "hello ");
+        assert_eq!(second.layout_switch(), Some("us"));
+
+        // And it keeps going, as many times as asked.
+        let third = tap_alt(&mut e, "us");
+        assert_eq!(replaced_text(&third), "руддщ ");
+    }
+
+    #[test]
+    fn cycling_back_teaches_rekey_to_leave_that_word_alone() {
+        let mut e = engine();
+        assert!(type_str(&mut e, "ghbdtn ", "us") != Action::None);
+        assert_eq!(e.stats().corrections, 1);
+
+        // The user disagrees and taps Option to get their text back.
+        let back = tap_alt(&mut e, "us");
+        assert_eq!(replaced_text(&back), "ghbdtn ");
+        assert_eq!(e.stats().undos, 1);
+
+        // Having been overruled once, it does not try again.
+        assert_eq!(type_str(&mut e, "ghbdtn ", "us"), Action::None);
+    }
+
+    #[test]
+    fn cycling_through_three_layouts_visits_each_reading() {
+        let models = Models::load_dir(
+            &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("data/models"),
+        )
+        .unwrap();
+        let mut e = Engine::new(
+            models,
+            Config {
+                layouts: vec!["us".into(), "ru".into(), "uk".into()],
+                ..Config::default()
+            },
+        );
+        type_str(&mut e, "ds ", "us");
+        let mut seen = Vec::new();
+        for _ in 0..3 {
+            seen.push(replaced_text(&tap_alt(&mut e, "us")).to_string());
+        }
+        // Russian and Ukrainian render this differently, so all three readings
+        // must be reachable rather than toggling between two.
+        assert_eq!(seen.len(), 3);
+        assert!(
+            seen.contains(&"ds ".to_string()),
+            "original missing: {seen:?}"
+        );
+        assert!(
+            seen.iter().collect::<std::collections::HashSet<_>>().len() == 3,
+            "expected three distinct readings, got {seen:?}"
+        );
+    }
+
+    #[test]
+    fn holding_option_to_type_an_accent_is_not_a_shortcut() {
+        let mut e = engine();
+        type_str(&mut e, "hello ", "us");
+        let c = ctx("us");
+        // Option down, then a real keypress, then Option up: that is someone
+        // typing ´ or ˆ, not reaching for the shortcut.
+        e.on_key(&alt(true), &c);
+        e.on_key(&key('e'), &c);
+        let released = e.on_key(&alt(false), &c);
+        assert_eq!(released, Action::None);
+    }
+
+    #[test]
+    fn option_as_part_of_a_chord_is_not_a_shortcut() {
+        let mut e = engine();
+        type_str(&mut e, "hello ", "us");
+        let c = ctx("us");
+        // ⌥⌘ — someone reaching for an app shortcut, not tapping Option.
+        e.on_key(&alt(true), &c);
+        let chord = KeyEvent {
+            character: None,
+            key: Key::ModifiersChanged,
+            modifiers: Modifiers {
+                alt: true,
+                meta: true,
+                ..Default::default()
+            },
+            synthetic: false,
+        };
+        e.on_key(&chord, &c);
+        assert_eq!(e.on_key(&alt(false), &c), Action::None);
+    }
+
+    #[test]
+    fn the_shortcut_does_nothing_before_any_word() {
+        let mut e = engine();
+        assert_eq!(tap_alt(&mut e, "us"), Action::None);
     }
 
     #[test]
