@@ -352,6 +352,23 @@ impl Layout {
         self.mark_by_key.contains_key(&(idx, shifted))
     }
 
+    /// Every letter this layout can produce, lowercased and deduplicated.
+    ///
+    /// Used to enumerate plausible typo corrections: a missing or mistyped
+    /// letter has to be a letter the keyboard could have produced.
+    pub fn alphabet(&self) -> Vec<char> {
+        let mut letters: Vec<char> = self
+            .chars
+            .keys()
+            .copied()
+            .filter(|c| c.is_alphabetic())
+            .flat_map(|c| c.to_lowercase())
+            .collect();
+        letters.sort_unstable();
+        letters.dedup();
+        letters
+    }
+
     /// Fraction of `s` that this layout can actually type. Used to reject
     /// conversions that would mangle text rather than fix it.
     pub fn coverage(&self, s: &str) -> f32 {

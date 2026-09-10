@@ -61,6 +61,7 @@
   --error-bg: #ffecec;
   --error-border: #e5a9a9;
   --shadow-control: 0 1px 1px rgba(0, 0, 0, 0.06);
+  --titlebar-scrolled: rgba(236, 236, 238, 0.72);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -83,6 +84,7 @@
     --error-bg: #3a2020;
     --error-border: #7a3c3c;
     --shadow-control: none;
+    --titlebar-scrolled: rgba(28, 28, 30, 0.72);
   }
 }
 
@@ -118,6 +120,7 @@
   --field-bg: #fdfdfd;
   --preview-bg: #eef4fc;
   --shadow-control: none;
+  --titlebar-scrolled: rgba(243, 243, 243, 0.78);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -135,6 +138,7 @@
     --track-off: #9a9a9a;
     --field-bg: #2d2d2d;
     --preview-bg: #23344a;
+    --titlebar-scrolled: rgba(32, 32, 32, 0.78);
   }
 }
 
@@ -207,8 +211,14 @@ body {
 /* The functional layer: it floats above the content, and the content scrolls
    underneath it. Sticky rather than fixed so it participates in layout. */
 .titlebar {
-  position: sticky;
+  /* Fixed rather than sticky. A sticky element has its position recalculated
+     against the flow on every scroll frame; a fixed one is promoted to its own
+     layer and simply stays put, which is what stopped the strip stuttering as
+     content moved under it. */
+  position: fixed;
   top: 0;
+  left: 0;
+  right: 0;
   z-index: 10;
   height: var(--titlebar-height);
   display: flex;
@@ -221,15 +231,20 @@ body {
      in the WebKit view Tauri uses on macOS. */
 }
 
-/* A scroll edge effect: while content sits under the bar, blur and separate it
-   so the title stays legible over whatever is passing beneath. */
+/* A scroll edge effect: separate the bar once content passes beneath it.
+ *
+ * Deliberately no backdrop-filter. The window already sits on a system
+ * vibrancy material, and compositing a live blur on top of a live blur is what
+ * made the background tear while dragging and scrolling. The material behind
+ * is already doing the blurring; this only needs to add a tint and a hairline
+ * so the title stays legible over whatever is sliding past.
+ */
 .titlebar::after {
   content: "";
   position: absolute;
   inset: 0;
   z-index: -1;
-  backdrop-filter: saturate(180%) blur(20px);
-  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  background: var(--titlebar-scrolled);
   border-bottom: 1px solid var(--separator);
   opacity: 0;
   transition: opacity 0.18s ease;
@@ -256,7 +271,8 @@ body.scrolled .titlebar::after {
 /* -- layout ---------------------------------------------------------------- */
 
 main {
-  padding: 0 var(--gutter) var(--gutter);
+  /* The title bar is out of flow now, so the content has to make room. */
+  padding: var(--titlebar-height) var(--gutter) var(--gutter);
 }
 
 .group {
@@ -393,6 +409,16 @@ main {
 .switch input:focus-visible + .switch-track {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+/* Clicking a control focuses it, and the engine draws a ring for that. A ring
+   belongs to keyboard navigation, not to the pointer — :focus-visible is the
+   distinction, and every control here opts out of the rest. */
+.switch input:focus:not(:focus-visible),
+.select:focus:not(:focus-visible),
+input[type="checkbox"]:focus:not(:focus-visible),
+button:focus:not(:focus-visible) {
+  outline: none;
 }
 
 /* Fluent's toggle is a bordered pill whose dot grows when it turns on. */
@@ -548,7 +574,7 @@ input[type="checkbox"] {
 /* -- banners --------------------------------------------------------------- */
 
 .banner {
-  margin: 0 var(--gutter) 12px;
+  margin: var(--titlebar-height) var(--gutter) 12px;
   padding: 12px 14px;
   border-radius: var(--radius-group);
   border: 1px solid;
@@ -557,6 +583,12 @@ input[type="checkbox"] {
 
 .banner p {
   margin: 0;
+}
+
+.banner + .banner,
+.banner + main,
+.banner ~ main {
+  padding-top: 0;
 }
 
 .banner-warn {

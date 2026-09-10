@@ -815,9 +815,28 @@ mod tests {
     #[test]
     fn does_not_convert_gibberish_into_other_gibberish() {
         let mut e = engine();
-        // "hbdtn" reads as "ривет" in Russian, which is not a word either.
-        // Rewriting one nonsense string as another is pure churn.
-        assert_eq!(type_str(&mut e, "hbdtn ", "us"), Action::None);
+        // Readings that are not words in either language, and are not one
+        // letter from one either. Rewriting one nonsense string as another is
+        // pure churn.
+        for gibberish in ["qxzvj ", "vbxzq ", "zxcvq ", "wqxzj "] {
+            assert_eq!(
+                type_str(&mut e, gibberish, "us"),
+                Action::None,
+                "{gibberish:?} should be left alone"
+            );
+        }
+    }
+
+    #[test]
+    fn a_word_with_one_letter_wrong_is_still_corrected() {
+        // "hbdtn" reads as "ривет" — привет with a dropped п. That is a typing
+        // slip, not nonsense, and refusing it would mean Rekey stops working
+        // the moment someone fumbles a key. It corrects the layout and leaves
+        // the slip: this is not a spell checker.
+        let mut e = engine();
+        let action = type_str(&mut e, "hbdtn ", "us");
+        assert_eq!(replaced_text(&action), "ривет ");
+        assert_eq!(action.layout_switch(), Some("ru"));
     }
 
     #[test]

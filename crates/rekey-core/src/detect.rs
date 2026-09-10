@@ -25,6 +25,9 @@ pub struct Candidate {
     pub delta: f32,
     pub target_knows_word: bool,
     pub source_knows_word: bool,
+    /// Set when the corrected reading is not a word, but is one letter away
+    /// from a real one — carrying that word's log10 probability.
+    pub target_typo_of: Option<f32>,
 }
 
 impl Candidate {
@@ -86,6 +89,25 @@ pub struct Detector {
 /// How much of a word must be typeable on the target layout for the conversion
 /// to be considered meaningful rather than mangling.
 const MIN_COVERAGE: f32 = 0.99;
+
+/// Shortest word that may be matched through a typo.
+///
+/// Below this almost everything is one edit from something, so a match stops
+/// being evidence of anything.
+const MIN_TYPO_LEN: usize = 4;
+
+/// A typo match only counts when the word it corrects to is genuinely common.
+/// The corpus tail is easy to land beside by accident.
+const TYPO_COMMON_FLOOR: f32 = -5.0;
+
+/// How much less likely a word with one letter wrong is than the same word
+/// spelled correctly, in log10 units.
+///
+/// The whole cost of a typo match lives here, in the score, rather than being
+/// split between the score and the surcharge — charging twice for the same
+/// doubt is how a correction that should obviously happen ends up just under
+/// the line.
+const TYPO_SCORE_PENALTY: f32 = -1.5;
 
 /// Band below the switch threshold that counts as "worth asking the AI about".
 const AMBIGUOUS_BAND: f32 = 1.5;
@@ -170,8 +192,26 @@ impl Detector {
             }
             saw_convertible = true;
 
-            let score_converted = dst_model.score(&converted);
-            let target_knows_word = dst_model.knows(&crate::model::normalize(&converted));
+            let normalized = crate::model::normalize(&converted);
+            let mut score_converted = dst_model.score(&converted);
+            let target_knows_word = dst_model.knows(&normalized);
+
+            // Not a word — but perhaps a real word with one letter wrong,
+            // which is what an ordinary typing slip looks like.
+            let target_typo_of = if target_knows_word || normalized.chars().count() < MIN_TYPO_LEN {
+                None
+            } else {
+                dst_model
+                    .best_within_one_edit(&normalized, &to.alphabet())
+                    .filter(|logp| *logp >= TYPO_COMMON_FLOOR)
+            };
+
+            // Score it as the word it is a slip of, discounted. Left as the
+            // letter-shape estimate it would otherwise get, a mistyped real
+            // word looks exactly like gibberish.
+            if let Some(logp) = target_typo_of {
+                score_converted = score_converted.max(logp + TYPO_SCORE_PENALTY);
+            }
 
             let cand = Candidate {
                 to_layout: to.def.id,
@@ -181,6 +221,7 @@ impl Detector {
                 delta: score_converted - score_as_typed,
                 target_knows_word,
                 source_knows_word,
+                target_typo_of,
             };
             if best.as_ref().is_none_or(|b| cand.delta > b.delta) {
                 best = Some(cand);
@@ -209,8 +250,12 @@ impl Detector {
         };
 
         // Neither reading is a known word: this is a guess from letter shape
-        // alone, so demand much more before touching the user's text.
-        if !best.target_knows_word {
+        // alone, so demand much more before touching the user's text — unless
+        // the reading is a real word with a single letter wrong, which is a
+        // typing slip rather than nonsense.
+        // A reading that is a real word with one letter wrong has already paid
+        // for that doubt in its score, so it is not charged again here.
+        if !best.target_knows_word && best.target_typo_of.is_none() {
             required += self.config.sensitivity.unknown_target_surcharge();
         }
 

@@ -84,6 +84,13 @@ if (!window.__TAURI__ && isLocalDevServer()) {
     get_state: () => structuredClone(state),
     set_config: ({ config, launchAtLogin }) => {
       Object.assign(state, config);
+      // get_state answers with a flat string, so the mock has to convert back
+      // rather than echo the tagged shape it was given — otherwise it drifts
+      // from the real contract and hides bugs instead of exposing them.
+      if (config?.shortcut) {
+        const { kind, modifier } = config.shortcut;
+        state.shortcut = kind === "off" ? "off" : `${kind}:${modifier}`;
+      }
       if (launchAtLogin !== undefined) state.launch_at_login = launchAtLogin;
     },
     request_permission: () => true,

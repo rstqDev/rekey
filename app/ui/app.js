@@ -216,9 +216,29 @@ function renderChips(id, values) {
   }
 }
 
-/** Send the current config back to Rust with `changes` applied. */
+/**
+ * Send the current config back to Rust with `changes` applied.
+ *
+ * Wrapped because a failure here is otherwise completely silent: the control
+ * moves, nothing is written, and the window looks like it worked. That is
+ * exactly what happened when a missing helper made every call throw.
+ */
 async function save(changes = {}, extras = {}) {
   if (!state) return;
+  try {
+    await writeConfig(changes, extras);
+  } catch (error) {
+    console.error("could not save settings", error);
+    const banner = $("save-error");
+    if (banner) {
+      banner.hidden = false;
+      banner.textContent =
+        "Rekey could not save that setting. The change was not applied.";
+    }
+  }
+}
+
+async function writeConfig(changes, extras) {
   const config = {
     enabled: state.enabled,
     layouts: state.layouts,
@@ -234,6 +254,19 @@ async function save(changes = {}, extras = {}) {
   };
   await invoke("set_config", { config, ...extras });
   await refresh();
+}
+
+/**
+ * Turn "doubletap:option" into the tagged shape the engine expects.
+ *
+ * Tolerates being handed the tagged shape back, so a round trip through an
+ * already-parsed value cannot throw and take the whole save with it.
+ */
+function parseShortcut(value) {
+  if (!value || value === "off") return { kind: "off" };
+  if (typeof value === "object") return value;
+  const [kind, modifier] = String(value).split(":");
+  return { kind, modifier };
 }
 
 let previewTimer = null;

@@ -167,6 +167,84 @@ impl Model {
         sum / tris.len() as f32
     }
 
+    /// The most likely real word within one edit of `word`.
+    ///
+    /// Returns that word's log10 probability, so the caller can tell a slip in
+    /// a common word from a slip that happens to land near an obscure one.
+    ///
+    /// One edit means a single inserted, deleted, substituted or transposed
+    /// letter — the shape of an ordinary typing slip. Wider edit distances
+    /// start matching unrelated words, which is the opposite of what this is
+    /// for: the point is to recognise a real word that was mistyped, not to
+    /// find something vaguely similar.
+    ///
+    /// Every candidate is generated and looked up, rather than the table being
+    /// searched. A six-letter word over a 33-letter alphabet is about 450
+    /// lookups, and each is a binary search — cheap enough to sit in the
+    /// typing path, and it needs no extra index.
+    pub fn best_within_one_edit(&self, word: &str, alphabet: &[char]) -> Option<f32> {
+        let chars: Vec<char> = word.chars().collect();
+        let mut best: Option<f32> = None;
+        let mut consider = |candidate: &str| {
+            if let Some(logp) = self.word_logp(candidate) {
+                if best.is_none_or(|b| logp > b) {
+                    best = Some(logp);
+                }
+            }
+        };
+
+        let mut buffer = String::with_capacity(word.len() + 4);
+
+        // Deletion: one letter too many was typed.
+        for skip in 0..chars.len() {
+            buffer.clear();
+            buffer.extend(
+                chars
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, _)| *i != skip)
+                    .map(|(_, c)| c),
+            );
+            consider(&buffer);
+        }
+
+        // Transposition: two neighbouring letters arrived in the wrong order.
+        for i in 0..chars.len().saturating_sub(1) {
+            let mut swapped = chars.clone();
+            swapped.swap(i, i + 1);
+            buffer.clear();
+            buffer.extend(swapped.iter());
+            consider(&buffer);
+        }
+
+        for &letter in alphabet {
+            // Substitution: the wrong letter was typed.
+            for i in 0..chars.len() {
+                if chars[i] == letter {
+                    continue;
+                }
+                buffer.clear();
+                buffer.extend(
+                    chars
+                        .iter()
+                        .enumerate()
+                        .map(|(j, c)| if j == i { &letter } else { c }),
+                );
+                consider(&buffer);
+            }
+            // Insertion: a letter was missed out.
+            for i in 0..=chars.len() {
+                buffer.clear();
+                buffer.extend(chars[..i].iter());
+                buffer.push(letter);
+                buffer.extend(chars[i..].iter());
+                consider(&buffer);
+            }
+        }
+
+        best
+    }
+
     /// How plausible `word` is in this language, in log10 units.
     ///
     /// A known word scores its unigram probability. An unknown word scores its

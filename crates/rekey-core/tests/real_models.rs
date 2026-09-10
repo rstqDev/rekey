@@ -103,6 +103,43 @@ fn recognises_slang_not_found_in_dictionaries() {
     }
 }
 
+#[test]
+fn a_mistyped_word_is_still_recognised_as_the_wrong_layout() {
+    // Rekey fixes the layout, not the spelling. A word with one letter wrong
+    // is still obviously meant for the other keyboard, and refusing to act on
+    // it would mean the tool quietly stops working the moment someone fumbles
+    // a key — which is exactly when they are typing fast.
+    let d = detector(&["us", "ru"]);
+
+    // "привте" — the last two letters swapped. Typed on a US layout that is
+    // "ghbdnt", and it should still be recognised.
+    for typo in ["привте", "привт", "приветт", "прувет"] {
+        let mistyped = rekey_core::convert_by_id(typo, "ru", "us").unwrap();
+        match d.evaluate(&mistyped, "us") {
+            Verdict::Switch(c) => assert_eq!(
+                c.converted, typo,
+                "should convert to the slip as typed, not silently respell it"
+            ),
+            other => panic!("{typo:?} (typed as {mistyped:?}) was not corrected: {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn a_typo_match_does_not_licence_guessing() {
+    // The point of the previous test is words with a slip, not anything that
+    // happens to sit near a word. Real English must still be left alone, and
+    // short strings must not qualify at all — almost every short string is one
+    // edit from something.
+    let d = detector(&["us", "ru"]);
+    for word in ["hello", "world", "think", "because", "system", "friend"] {
+        assert_keeps(&d, word, "us");
+    }
+    for short in ["qx", "zpq", "wrt"] {
+        assert_keeps(&d, short, "us");
+    }
+}
+
 // -- the expensive mistakes -------------------------------------------------
 
 #[test]
