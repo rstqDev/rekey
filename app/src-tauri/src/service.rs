@@ -4,6 +4,7 @@
 use rekey_core::engine::{Action, Engine};
 use rekey_core::input::{Context, TextWriter};
 use rekey_hook::platform;
+use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -14,6 +15,14 @@ use std::time::{Duration, Instant};
 /// speed. A short cache makes it negligible while still noticing an app or
 /// layout change well within one word.
 const CONTEXT_TTL: Duration = Duration::from_millis(150);
+
+/// How long to wait before replacing text.
+///
+/// The event tap sees a keystroke while it is still in flight, so the space
+/// that ended the word has not necessarily reached the application yet.
+/// Replacing immediately can race it and eat the wrong character. A short
+/// pause costs nothing perceptible and removes the race.
+const REPLACE_DELAY: Duration = Duration::from_millis(25);
 
 struct ContextCache {
     value: Context,
@@ -51,6 +60,7 @@ pub fn spawn(engine: SharedEngine) -> Result<(), rekey_hook::HookError> {
     }
 
     let injector: Arc<dyn TextWriter> = Arc::new(new_injector()?);
+    let replacements = spawn_injector(injector)?;
 
     std::thread::Builder::new()
         .name("rekey-hook".into())
@@ -68,7 +78,10 @@ pub fn spawn(engine: SharedEngine) -> Result<(), rekey_hook::HookError> {
                     }
                 };
                 if let Action::Replace { .. } = &action {
-                    action.apply(injector.as_ref());
+                    // Hand the work to the injector thread and return at once.
+                    // macOS disables an event tap whose callback is slow, and
+                    // a replacement is a dozen synthetic events.
+                    let _ = replacements.send(action);
                 }
             });
             if let Err(e) = result {
@@ -78,6 +91,27 @@ pub fn spawn(engine: SharedEngine) -> Result<(), rekey_hook::HookError> {
         .map_err(|e| rekey_hook::HookError::Os(e.to_string()))?;
 
     Ok(())
+}
+
+/// Start the thread that applies corrections, and return its inbox.
+///
+/// Injection is deliberately off the tap callback: it keeps the callback fast
+/// enough that macOS will not disable the tap, and it lets the keystroke that
+/// triggered the correction land before the correction is typed.
+fn spawn_injector(
+    injector: Arc<dyn TextWriter>,
+) -> Result<Sender<Action>, rekey_hook::HookError> {
+    let (tx, rx) = mpsc::channel::<Action>();
+    std::thread::Builder::new()
+        .name("rekey-inject".into())
+        .spawn(move || {
+            for action in rx {
+                std::thread::sleep(REPLACE_DELAY);
+                action.apply(injector.as_ref());
+            }
+        })
+        .map_err(|e| rekey_hook::HookError::Os(e.to_string()))?;
+    Ok(tx)
 }
 
 #[cfg(target_os = "macos")]

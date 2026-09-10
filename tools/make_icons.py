@@ -65,18 +65,21 @@ def union(*fns):
     return lambda px, py: min(f(px, py) for f in fns)
 
 
-def swap_arrow(size):
+def swap_arrow(size, span=(0.27, 0.73), rows=(0.405, 0.595), weight=1.0):
     """Two opposed arrows: the universal 'these two exchange places' mark.
 
     The shaft stops exactly where the head begins, so the two read as one arrow
     rather than a bar with a triangle stuck to it.
+
+    `span`, `rows` and `weight` let the same glyph be drawn inside the app
+    icon's keycap or, larger and on its own, as the menu bar glyph.
     """
     s = size
-    shaft = s * 0.042        # half-thickness of the shaft
-    head_len = s * 0.125
-    head_half = s * 0.105
-    left, right = s * 0.27, s * 0.73
-    top, bottom = s * 0.405, s * 0.595
+    shaft = s * 0.042 * weight
+    head_len = s * 0.125 * weight
+    head_half = s * 0.105 * weight
+    left, right = s * span[0], s * span[1]
+    top, bottom = s * rows[0], s * rows[1]
 
     def arrow(y, tip_x, tail_x):
         direction = 1 if tip_x > tail_x else -1
@@ -91,10 +94,19 @@ def swap_arrow(size):
 
 
 def render(size, template=False):
-    """Rasterise one icon at `size` px, returning RGBA rows."""
+    """Rasterise one icon at `size` px, returning RGBA rows.
+
+    The app icon is a brand-coloured keycap with the glyph knocked out of it.
+    The menu bar icon is the bare glyph: macOS status items are conventionally
+    light outline marks, and a solid filled square sits far heavier in the menu
+    bar than everything beside it.
+    """
     s = size
     key = rounded_rect(s / 2, s / 2, s * 0.82, s * 0.82, s * 0.22)
-    arrow = swap_arrow(s)
+    if template:
+        arrow = swap_arrow(s, span=(0.10, 0.90), rows=(0.34, 0.66), weight=1.30)
+    else:
+        arrow = swap_arrow(s)
 
     rows = []
     for py in range(s):
@@ -108,10 +120,9 @@ def render(size, template=False):
                     d_key = key(fx, fy)
                     d_arrow = arrow(fx, fy)
                     if template:
-                        # Template images are pure black; only alpha carries the
-                        # shape, and the arrow is punched out of the keycap.
-                        inside = d_key <= 0 and d_arrow > 0
-                        if inside:
+                        # Template images are pure black; only alpha carries
+                        # the shape. The glyph stands alone, with no keycap.
+                        if d_arrow <= 0:
                             a += 1.0
                     else:
                         if d_arrow <= 0 and d_key <= 0:
